@@ -1,0 +1,32 @@
+{
+  "SPECTATEMOD-SPECTATING.title": "Spectating",
+  "SPECTATEMOD-WHAT_GETS_REPLACED.title": "What gets replaced",
+  "SPECTATEMOD-INDICATORS.title": "Indicators",
+
+  "SPECTATEMOD-AUTO_SPECTATE_AFTER_END_TURN.title": "Auto spectate after ending your turn",
+  "SPECTATEMOD-AUTO_SPECTATE_AFTER_END_TURN.description": "Automatically switch to a teammate who is still alive and has not ended their turn.",
+
+  "SPECTATEMOD-MANUAL_SPECTATE_ON_CLICK.title": "Click a teammate to spectate",
+  "SPECTATEMOD-MANUAL_SPECTATE_ON_CLICK.description": "Click a teammate to start or stop spectating them. Click your own character to stop spectating.",
+
+  "SPECTATEMOD-PREFERRED_TEAMMATE_SLOT.title": "Preferred teammate slot",
+  "SPECTATEMOD-PREFERRED_TEAMMATE_SLOT.description": "Teammate to prefer for auto spectate. 0 picks the first eligible teammate. If the preferred teammate is dead or has ended their turn, another eligible teammate is used.",
+
+  "SPECTATEMOD-REPLACE_HAND.title": "Replace your hand",
+  "SPECTATEMOD-REPLACE_HAND.description": "Show the spectated teammate's hand in place of your own.",
+
+  "SPECTATEMOD-REPLACE_COMBAT_UI.title": "Replace combat UI",
+  "SPECTATEMOD-REPLACE_COMBAT_UI.description": "Point the draw, discard and exhaust piles, the energy orb and the star counter at the teammate you are watching.",
+
+  "SPECTATEMOD-MIRROR_HOVER.title": "Mirror card hover",
+  "SPECTATEMOD-MIRROR_HOVER.description": "Raise the card the teammate is inspecting.",
+
+  "SPECTATEMOD-SHOW_CARD_PLAY_VISUALS.title": "Show card play and targeting",
+  "SPECTATEMOD-SHOW_CARD_PLAY_VISUALS.description": "Draw the teammate's targeting line and selection reticle in your own view.",
+
+  "SPECTATEMOD-SHOW_SPECTATING_LABEL.title": "Show \"Spectating\" label",
+  "SPECTATEMOD-SHOW_SPECTATING_LABEL.description": "Show the name of the player you are watching at the top of the screen.",
+
+  "SPECTATEMOD-SHOW_SPECTATING_BORDER.title": "Show red screen border",
+  "SPECTATEMOD-SHOW_SPECTATING_BORDER.description": "Outline the screen in red while spectating."
+}
