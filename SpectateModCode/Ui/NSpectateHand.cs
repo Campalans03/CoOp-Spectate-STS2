@@ -14,9 +14,17 @@ namespace SpectateMod.SpectateModCode.Ui;
 /// <summary>
 /// A read-only copy of the spectated teammate's hand, drawn where our own hand would be.
 /// <para>
-/// It deliberately does not reuse <see cref="NPlayerHand"/>: the real hand owns card play, drag, selection and the
-/// networked "I am hovering X" state, and feeding somebody else's cards through it would let us act on them. These are
-/// plain <see cref="NCard"/> nodes with mouse input disabled, so nothing here can ever enqueue an action.
+/// It deliberately does not reuse <see cref="NPlayerHand" />: the real hand owns card play, drag, selection and the
+/// networked "I am hovering X" state, and feeding somebody else's cards through it would let us act on them. Nothing
+/// here creates a card holder, so there is no path from a mirrored card to an action.
+/// </para>
+/// <para>
+/// <b>Never write to an <see cref="NCard" /> outside what the pool resets.</b> Card nodes come from the shared
+/// <c>NodePool&lt;NCard&gt;</c>, and <c>NCard.OnReturnedFromPool</c> only clears Position, Rotation, Scale, Modulate,
+/// Visible, the model and the materials. Anything else we set would ride along into whatever asks for that node next
+/// — the real hand, the play area, card rewards — and there is nobody to clean it up. So each card gets its own
+/// wrapper slot that we own, and every presentation property (offset in the fan, angle, scale, draw order, pivot)
+/// lives on the slot. The pooled node itself is only ever parented and left alone.
 /// </para>
 /// </summary>
 public partial class NSpectateHand : Control
@@ -26,15 +34,13 @@ public partial class NSpectateHand : Control
 
     private const float hoverRaise = 90f;
 
+    private readonly Dictionary<CardModel, Control> _slots = new();
     private readonly Dictionary<CardModel, NCard> _cards = new();
     private readonly List<CardModel> _order = new();
 
     private NPlayerHand? _realHand;
-    private Player? _player;
     private CardPile? _pile;
     private CardModel? _hovered;
-
-    public IReadOnlyDictionary<CardModel, NCard> Cards => _cards;
 
     public static NSpectateHand Create(NPlayerHand realHand)
     {
@@ -50,7 +56,6 @@ public partial class NSpectateHand : Control
     public void Bind(Player player)
     {
         Unbind();
-        _player = player;
         _pile = player.PlayerCombatState?.Hand;
         if (_pile == null)
         {
@@ -71,7 +76,6 @@ public partial class NSpectateHand : Control
             _pile.CardRemoveFinished -= OnPileChanged;
             _pile = null;
         }
-        _player = null;
         _hovered = null;
         ClearCards();
     }
@@ -84,20 +88,28 @@ public partial class NSpectateHand : Control
         {
             return;
         }
-        _hovered = card != null && _cards.ContainsKey(card) ? card : null;
+        _hovered = card != null && _slots.ContainsKey(card) ? card : null;
         Layout();
     }
 
     /// <summary>Global position of a mirrored card, used as the origin of the teammate's targeting line.</summary>
     public Vector2? GetCardCenter(CardModel card)
     {
-        if (!_cards.TryGetValue(card, out NCard? node) || !GodotObject.IsInstanceValid(node))
+        if (!_slots.TryGetValue(card, out Control? slot) || !GodotObject.IsInstanceValid(slot))
         {
             return null;
         }
-        // Cards scale and rotate around their pivot, which sits at the middle of the unscaled rect, so the visual
+        // Slots scale and rotate around their pivot, which sits at the middle of the unscaled rect, so the visual
         // centre is the pivot and scale doesn't come into it.
-        return node.GlobalPosition + NCard.defaultSize * 0.5f;
+        return slot.GlobalPosition + NCard.defaultSize * 0.5f;
+    }
+
+    public override void _Process(double delta)
+    {
+        base._Process(delta);
+        // The real container is reached through a unique-name lookup and may sit at any depth, so follow it in global
+        // space instead of assuming we share a parent. Doing it per frame also survives resolution changes.
+        FollowRealHand();
     }
 
     public override void _ExitTree()
@@ -121,14 +133,14 @@ public partial class NSpectateHand : Control
         _order.Clear();
         _order.AddRange(_pile.Cards);
 
-        foreach (CardModel gone in _cards.Keys.Where(c => !_order.Contains(c)).ToList())
+        foreach (CardModel gone in _slots.Keys.Where(c => !_order.Contains(c)).ToList())
         {
             Release(gone);
         }
 
         foreach (CardModel card in _order)
         {
-            if (_cards.ContainsKey(card))
+            if (_slots.ContainsKey(card))
             {
                 continue;
             }
@@ -137,29 +149,29 @@ public partial class NSpectateHand : Control
             {
                 continue;
             }
-            node.MouseFilter = MouseFilterEnum.Ignore;
-            node.PivotOffset = NCard.defaultSize * 0.5f;
-            this.AddChildSafely(node);
+
+            Control slot = new()
+            {
+                Name = $"SpectateSlot-{card.Id}",
+                MouseFilter = MouseFilterEnum.Ignore,
+                Size = NCard.defaultSize,
+                PivotOffset = NCard.defaultSize * 0.5f
+            };
+            this.AddChildSafely(slot);
+            slot.AddChildSafely(node);
             if (node.IsNodeReady())
             {
                 node.UpdateVisuals(PileType.Hand, CardPreviewMode.Normal);
             }
+            _slots[card] = slot;
             _cards[card] = node;
         }
 
-        if (_hovered != null && !_cards.ContainsKey(_hovered))
+        if (_hovered != null && !_slots.ContainsKey(_hovered))
         {
             _hovered = null;
         }
         Layout();
-    }
-
-    public override void _Process(double delta)
-    {
-        base._Process(delta);
-        // The real container is reached through a unique-name lookup and may sit at any depth, so follow it in global
-        // space instead of assuming we share a parent. Doing it per frame also survives resolution changes.
-        FollowRealHand();
     }
 
     private void FollowRealHand()
@@ -174,7 +186,7 @@ public partial class NSpectateHand : Control
     {
         FollowRealHand();
 
-        List<CardModel> visible = _order.Where(_cards.ContainsKey).ToList();
+        List<CardModel> visible = _order.Where(_slots.ContainsKey).ToList();
         int count = Math.Min(visible.Count, maxLayoutCards);
         if (count <= 0)
         {
@@ -184,45 +196,50 @@ public partial class NSpectateHand : Control
         Vector2 scale = HandPosHelper.GetScale(count);
         for (int i = 0; i < visible.Count; i++)
         {
-            NCard node = _cards[visible[i]];
-            if (!GodotObject.IsInstanceValid(node))
+            Control slot = _slots[visible[i]];
+            if (!GodotObject.IsInstanceValid(slot))
             {
                 continue;
             }
             if (i >= count)
             {
                 // More cards than the fan supports; the real hand caps at 10 too, so just hide the overflow.
-                node.Visible = false;
+                slot.Visible = false;
                 continue;
             }
 
-            node.Visible = true;
+            slot.Visible = true;
             bool isHovered = visible[i] == _hovered;
-            Vector2 slot = HandPosHelper.GetPosition(count, i);
-            Vector2 cardScale = isHovered ? Vector2.One : scale;
-            node.Scale = cardScale;
-            node.Rotation = isHovered ? 0f : Mathf.DegToRad(HandPosHelper.GetAngle(count, i));
-            node.Position = slot - NCard.defaultSize * 0.5f + (isHovered ? Vector2.Up * hoverRaise : Vector2.Zero);
-            node.ZIndex = isHovered ? 1 : 0;
+            Vector2 position = HandPosHelper.GetPosition(count, i);
+            slot.Scale = isHovered ? Vector2.One : scale;
+            slot.Rotation = isHovered ? 0f : Mathf.DegToRad(HandPosHelper.GetAngle(count, i));
+            slot.Position = position - NCard.defaultSize * 0.5f + (isHovered ? Vector2.Up * hoverRaise : Vector2.Zero);
+            slot.ZIndex = isHovered ? 1 : 0;
         }
     }
 
     private void ClearCards()
     {
-        foreach (CardModel card in _cards.Keys.ToList())
+        foreach (CardModel card in _slots.Keys.ToList())
         {
             Release(card);
         }
+        _slots.Clear();
         _cards.Clear();
         _order.Clear();
     }
 
     private void Release(CardModel card)
     {
+        // Return the card to the pool first: QueueFreeSafely detaches an IPoolable from its parent immediately and
+        // defers only the pool hand-back. Freeing the slot first would take the card down with it and lose the node.
         if (_cards.Remove(card, out NCard? node) && GodotObject.IsInstanceValid(node))
         {
-            // QueueFreeSafely returns pooled nodes (NCard is IPoolable) instead of destroying them.
             node.QueueFreeSafely();
+        }
+        if (_slots.Remove(card, out Control? slot) && GodotObject.IsInstanceValid(slot))
+        {
+            slot.QueueFreeSafely();
         }
     }
 }

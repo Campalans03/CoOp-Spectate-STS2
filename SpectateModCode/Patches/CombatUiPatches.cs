@@ -42,17 +42,13 @@ public static class CombatUiPatches
         Teardown();
     }
 
+    /// <summary>
+    /// Detach before uninstall, not the other way round. Detaching stops any active spectate, and it is that stop
+    /// which drives the view back to the local player (unhiding our hand, rebinding the piles and counters).
+    /// Uninstalling first would drop the listener and leave the combat UI pointing at the teammate.
+    /// </summary>
     private static void Teardown()
     {
-        try
-        {
-            SpectateView.Uninstall();
-        }
-        catch (Exception e)
-        {
-            MainFile.Logger.Error($"Failed to tear down the spectate view: {e}");
-        }
-
         try
         {
             SpectateController.DetachFromCombat();
@@ -60,6 +56,15 @@ public static class CombatUiPatches
         catch (Exception e)
         {
             MainFile.Logger.Error($"Failed to detach the spectate controller: {e}");
+        }
+
+        try
+        {
+            SpectateView.Uninstall();
+        }
+        catch (Exception e)
+        {
+            MainFile.Logger.Error($"Failed to tear down the spectate view: {e}");
         }
     }
 }
