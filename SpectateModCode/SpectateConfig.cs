@@ -42,7 +42,7 @@ public class SpectateConfig : SimpleModConfig
     public static int PreferredTeammateSlot { get; set; }
 
     /// <summary>
-    /// Small player boxes under the end turn button: rest the mouse on one to see that player's hand for as long as
+    /// Small player boxes down the right edge of the screen: rest the mouse on one to see that player's hand for as long as
     /// it stays there, without spectating them.
     /// </summary>
     public static bool ShowHandPeekBar { get; set; } = true;

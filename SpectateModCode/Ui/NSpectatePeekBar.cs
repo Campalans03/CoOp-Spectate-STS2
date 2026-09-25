@@ -11,18 +11,15 @@ using MegaCrit.Sts2.Core.Runs;
 namespace SpectateMod.SpectateModCode.Ui;
 
 /// <summary>
-/// A row of small player boxes right under the end turn button, for a quick look at somebody's hand without
+/// A column of small player boxes against the right edge of the screen, for a quick look at somebody's hand without
 /// spectating them. See <see cref="NSpectatePeekSlot" /> for how a box triggers the peek.
 /// </summary>
-public partial class NSpectatePeekBar : HBoxContainer
+public partial class NSpectatePeekBar : VBoxContainer
 {
     private const float slotGap = 8f;
 
-    /// <summary>Space between the bottom of the end turn button and the boxes.</summary>
-    private const float buttonGap = 6f;
-
-    /// <summary>Kept clear at the bottom of the screen if the button sits too low for the boxes to fit under it.</summary>
-    private const float screenMargin = 6f;
+    /// <summary>Space kept between the boxes and the right edge of the screen.</summary>
+    private const float screenMargin = 12f;
 
     private NEndTurnButton? _endTurnButton;
 
@@ -49,6 +46,8 @@ public partial class NSpectatePeekBar : HBoxContainer
     {
         base._Process(delta);
 
+        // Shown alongside the end turn button: it is on screen exactly while the combat UI is, and animates away with
+        // it at the end of combat.
         bool show = SpectateConfig.ShowHandPeekBar
                     && _endTurnButton != null
                     && GodotObject.IsInstanceValid(_endTurnButton)
@@ -65,23 +64,17 @@ public partial class NSpectatePeekBar : HBoxContainer
         }
         if (show)
         {
-            FollowEndTurnButton();
+            HugRightEdge();
         }
     }
 
-    /// <summary>
-    /// Centred under the button, followed every frame because the button animates in and out with the turn.
-    /// </summary>
-    private void FollowEndTurnButton()
+    /// <summary>Centred vertically against the right edge; placed every frame so it survives resolution changes.</summary>
+    private void HugRightEdge()
     {
-        Rect2 button = _endTurnButton!.GetGlobalRect();
         Vector2 size = GetCombinedMinimumSize();
         Size = size;
-
-        float bottomLimit = GetViewportRect().Size.Y - screenMargin - size.Y;
-        GlobalPosition = new Vector2(
-            button.Position.X + (button.Size.X - size.X) * 0.5f,
-            Mathf.Min(button.End.Y + buttonGap, bottomLimit));
+        Vector2 screen = GetViewportRect().Size;
+        GlobalPosition = new Vector2(screen.X - screenMargin - size.X, (screen.Y - size.Y) * 0.5f);
     }
 
     private static bool InActiveCombat()
