@@ -32,6 +32,9 @@
   "SPECTATEMOD-REPLACE_COMBAT_UI.title": "Replace combat UI",
   "SPECTATEMOD-REPLACE_COMBAT_UI.description": "Point the draw, discard and exhaust piles, the energy orb and the star counter at the teammate you are watching.",
 
+  "SPECTATEMOD-REPLACE_RELICS.title": "Replace relics",
+  "SPECTATEMOD-REPLACE_RELICS.description": "Show the spectated teammate's relics in the top bar instead of your own.",
+
   "SPECTATEMOD-MIRROR_HOVER.title": "Mirror card hover",
   "SPECTATEMOD-MIRROR_HOVER.description": "Raise the card the teammate is inspecting.",
 

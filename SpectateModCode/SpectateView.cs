@@ -91,6 +91,8 @@ public static class SpectateView
         }
 
         RestoreCombatUi();
+        // It outlives this combat, so it must never be left showing somebody else's relics.
+        ApplyRelics(null);
 
         _hand?.QueueFreeSafely();
         _overlay?.QueueFreeSafely();
@@ -118,6 +120,7 @@ public static class SpectateView
         {
             ApplyHand();
             ApplyCombatUi(target);
+            ApplyRelics(target);
             _overlay?.Refresh(target);
         }
         catch (Exception e)
@@ -241,6 +244,26 @@ public static class SpectateView
         else
         {
             RestoreCombatUi();
+        }
+    }
+
+    /// <summary>
+    /// The relic row sits in the run's top bar rather than in combat, so it is handled apart from
+    /// <see cref="BindCombatUi" /> and guarded on its own: a failure here only costs the relics, not the spectate.
+    /// </summary>
+    private static void ApplyRelics(Player? target)
+    {
+        if (_localPlayer == null)
+        {
+            return;
+        }
+        try
+        {
+            RelicView.Show(target != null && SpectateConfig.ReplaceRelics ? target : _localPlayer);
+        }
+        catch (Exception e)
+        {
+            MainFile.Logger.Error($"Failed to swap the relic row: {e}");
         }
     }
 

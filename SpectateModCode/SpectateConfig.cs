@@ -56,6 +56,9 @@ public class SpectateConfig : SimpleModConfig
 
     public static bool ReplaceCombatUi { get; set; } = true;
 
+    /// <summary>Show the watched player's relics in the top bar instead of ours.</summary>
+    public static bool ReplaceRelics { get; set; } = true;
+
     public static bool MirrorHover { get; set; } = true;
 
     /// <summary>Let our own mouse lift the teammate's cards so we can read them without waiting for them to hover.</summary>
