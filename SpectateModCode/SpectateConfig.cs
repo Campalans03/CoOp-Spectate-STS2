@@ -10,7 +10,15 @@ namespace SpectateMod.SpectateModCode;
 /// </summary>
 public class SpectateConfig : SimpleModConfig
 {
-    public static SpectateConfig Instance { get; } = new();
+    private static SpectateConfig? _instance;
+
+    /// <summary>
+    /// Created lazily on first access rather than in a static field initializer. ModConfig's constructor snapshots
+    /// every option's current value as its default, and static field initializers run in declaration order — so an
+    /// eagerly created instance would be built before the options below were assigned and would record every default
+    /// as false/0. Going through the property guarantees the type is fully initialized first.
+    /// </summary>
+    public static SpectateConfig Instance => _instance ??= new SpectateConfig();
 
     [ConfigSection("Spectating")]
     public static bool AutoSpectateAfterEndTurn { get; set; } = true;
