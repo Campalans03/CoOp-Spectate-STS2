@@ -40,8 +40,11 @@ public partial class NSpectateHand : Control
 
     private readonly Dictionary<CardModel, Control> _slots = new();
     private readonly Dictionary<CardModel, NCard> _cards = new();
+    private readonly Dictionary<CardModel, Control> _hitboxes = new();
     private readonly List<CardModel> _order = new();
 
+    private Control _cardLayer = null!;
+    private Control _hoverLayer = null!;
     private NPlayerHand? _realHand;
     private CardPile? _pile;
     private CardModel? _remoteHovered;
@@ -55,6 +58,15 @@ public partial class NSpectateHand : Control
             MouseFilter = MouseFilterEnum.Ignore
         };
         node._realHand = realHand;
+
+        node._cardLayer = new Control { Name = "Cards", MouseFilter = MouseFilterEnum.Ignore };
+        node.AddChildSafely(node._cardLayer);
+
+        // Hover targets live in their own layer, added last so they win the mouse pick over the cards they stand in
+        // for. They are plain Controls that draw nothing, but they must stay Visible: an invisible Control gets no
+        // mouse events at all.
+        node._hoverLayer = new Control { Name = "HoverTargets", MouseFilter = MouseFilterEnum.Ignore };
+        node.AddChildSafely(node._hoverLayer);
         return node;
     }
 
@@ -180,28 +192,32 @@ public partial class NSpectateHand : Control
                 Size = NCard.defaultSize,
                 PivotOffset = NCard.defaultSize * 0.5f
             };
-            this.AddChildSafely(slot);
+            _cardLayer.AddChildSafely(slot);
             slot.AddChildSafely(node);
             if (node.IsNodeReady())
             {
                 node.UpdateVisuals(PileType.Hand, CardPreviewMode.Normal);
             }
 
-            // Our own hover target. Added after the card so it sits last in tree order and wins the mouse pick, and
-            // it is our node rather than the pooled card, so nothing leaks back into the pool.
+            // The hover target is a sibling of the card rather than a child of it, and it stays at the card's resting
+            // place in the fan. Riding along with the card meant that lifting it on hover pulled the target out from
+            // under the cursor, which fired MouseExited, dropped the card, and started over: a flicker loop that only
+            // settled when the teammate's own hover had already lifted the card most of the way.
             CardModel captured = card;
             Control hitbox = new()
             {
-                Name = "Hitbox",
-                MouseFilter = MouseFilterEnum.Stop
+                Name = $"SpectateHover-{card.Id}",
+                MouseFilter = MouseFilterEnum.Stop,
+                Size = NCard.defaultSize,
+                PivotOffset = NCard.defaultSize * 0.5f
             };
-            hitbox.SetAnchorsPreset(LayoutPreset.FullRect);
-            slot.AddChildSafely(hitbox);
+            _hoverLayer.AddChildSafely(hitbox);
             hitbox.MouseEntered += () => SetLocalHovered(captured);
             hitbox.MouseExited += () => OnHitboxExited(captured);
 
             _slots[card] = slot;
             _cards[card] = node;
+            _hitboxes[card] = hitbox;
         }
 
         if (_remoteHovered != null && !_slots.ContainsKey(_remoteHovered))
@@ -252,10 +268,15 @@ public partial class NSpectateHand : Control
             {
                 continue;
             }
+            _hitboxes.TryGetValue(visible[i], out Control? hitbox);
             if (i >= count)
             {
                 // More cards than the fan supports; the real hand caps at 10 too, so just hide the overflow.
                 slot.Visible = false;
+                if (hitbox != null)
+                {
+                    hitbox.Visible = false;
+                }
                 continue;
             }
 
@@ -270,10 +291,20 @@ public partial class NSpectateHand : Control
             // holder's Position, and NCardHolder parks its card at Vector2.Zero inside itself. Treating it as a
             // centre shifted the whole fan half a card up and to the left.
             Vector2 position = HandPosHelper.GetPosition(count, i);
+            float angle = Mathf.DegToRad(HandPosHelper.GetAngle(count, i));
             slot.Scale = raised ? Vector2.One : scale;
-            slot.Rotation = raised ? 0f : Mathf.DegToRad(HandPosHelper.GetAngle(count, i));
+            slot.Rotation = raised ? 0f : angle;
             slot.Position = position + (raised ? Vector2.Up * raise : Vector2.Zero);
             slot.ZIndex = isLocal ? 2 : isRemote ? 1 : 0;
+
+            if (hitbox != null)
+            {
+                // Always the resting rect, never the lifted one, so hovering can't move its own target.
+                hitbox.Visible = true;
+                hitbox.Position = position;
+                hitbox.Scale = scale;
+                hitbox.Rotation = angle;
+            }
         }
     }
 
@@ -285,6 +316,7 @@ public partial class NSpectateHand : Control
         }
         _slots.Clear();
         _cards.Clear();
+        _hitboxes.Clear();
         _order.Clear();
     }
 
@@ -299,6 +331,14 @@ public partial class NSpectateHand : Control
         if (_slots.Remove(card, out Control? slot) && GodotObject.IsInstanceValid(slot))
         {
             slot.QueueFreeSafely();
+        }
+        if (_hitboxes.Remove(card, out Control? hitbox) && GodotObject.IsInstanceValid(hitbox))
+        {
+            hitbox.QueueFreeSafely();
+        }
+        if (_localHovered == card)
+        {
+            _localHovered = null;
         }
     }
 }
