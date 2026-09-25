@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Godot;
+using MegaCrit.Sts2.Core.Combat;
 using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Entities.Creatures;
 using MegaCrit.Sts2.Core.Entities.Players;
@@ -89,6 +90,8 @@ public partial class NSpectateHand : Control
     private Control _hoverLayer = null!;
     private NPlayerHand? _realHand;
     private CardPile? _pile;
+    private PlayerCombatState? _combatState;
+    private bool _trackingCombat;
     private CardModel? _remoteHovered;
     private CardModel? _localHovered;
 
@@ -123,6 +126,15 @@ public partial class NSpectateHand : Control
         _pile.ContentsChanged += OnPileChanged;
         _pile.CardAddFinished += OnPileChanged;
         _pile.CardRemoveFinished += OnPileChanged;
+
+        // A card's cost colour (red when it can't be afforded) is worked out once per UpdateVisuals, so it goes stale
+        // as soon as the teammate spends energy. The real hand redraws its cards on every combat state change; do the
+        // same, plus the teammate's own energy and stars, which is what affordability actually hangs on.
+        _combatState = player.PlayerCombatState!;
+        _combatState.EnergyChanged += OnResourceChanged;
+        _combatState.StarsChanged += OnResourceChanged;
+        CombatManager.Instance.StateTracker.CombatStateChanged += OnCombatStateChanged;
+        _trackingCombat = true;
         Rebuild();
     }
 
@@ -134,6 +146,17 @@ public partial class NSpectateHand : Control
             _pile.CardAddFinished -= OnPileChanged;
             _pile.CardRemoveFinished -= OnPileChanged;
             _pile = null;
+        }
+        if (_combatState != null)
+        {
+            _combatState.EnergyChanged -= OnResourceChanged;
+            _combatState.StarsChanged -= OnResourceChanged;
+            _combatState = null;
+        }
+        if (_trackingCombat)
+        {
+            CombatManager.Instance.StateTracker.CombatStateChanged -= OnCombatStateChanged;
+            _trackingCombat = false;
         }
         _remoteHovered = null;
         _localHovered = null;
@@ -253,6 +276,28 @@ public partial class NSpectateHand : Control
     private void OnPileChanged()
     {
         Rebuild();
+    }
+
+    private void OnCombatStateChanged(CombatState _)
+    {
+        RefreshCardVisuals();
+    }
+
+    private void OnResourceChanged(int oldValue, int newValue)
+    {
+        RefreshCardVisuals();
+    }
+
+    /// <summary>Redraws cost and playability on every mirrored card, the way NHandCardHolder.UpdateCard does.</summary>
+    private void RefreshCardVisuals()
+    {
+        foreach (NCard node in _cards.Values)
+        {
+            if (GodotObject.IsInstanceValid(node) && node.IsNodeReady())
+            {
+                node.UpdateVisuals(PileType.Hand, CardPreviewMode.Normal);
+            }
+        }
     }
 
     private void Rebuild()
