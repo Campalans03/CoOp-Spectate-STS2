@@ -39,5 +39,8 @@
   "SPECTATEMOD-SHOW_SPECTATING_LABEL.description": "Show the name of the player you are watching at the top of the screen.",
 
   "SPECTATEMOD-SHOW_SPECTATING_BORDER.title": "Show red screen border",
-  "SPECTATEMOD-SHOW_SPECTATING_BORDER.description": "Outline the screen in red while spectating."
+  "SPECTATEMOD-SHOW_SPECTATING_BORDER.description": "Outline the screen in red while spectating.",
+
+  "SPECTATEMOD-SHOW_OWN_ENERGY.title": "Show your own energy",
+  "SPECTATEMOD-SHOW_OWN_ENERGY.description": "While the combat UI shows a teammate's energy, keep a smaller orb with yours beside it."
 }

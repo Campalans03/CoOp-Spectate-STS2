@@ -57,4 +57,7 @@ public class SpectateConfig : SimpleModConfig
     public static bool ShowSpectatingLabel { get; set; } = true;
 
     public static bool ShowSpectatingBorder { get; set; } = true;
+
+    /// <summary>A small copy of our own energy orb next to the teammate's, so we can see what we have left.</summary>
+    public static bool ShowOwnEnergy { get; set; } = true;
 }

@@ -21,6 +21,14 @@ public static class SpectateView
     /// <summary>Energy orb offset used by the game when the star counter is always shown.</summary>
     private static readonly Vector2 starCounterEnergyPosition = new(100f, 806f);
 
+    /// <summary>Size of our own energy orb, relative to the teammate's, while it sits beside it.</summary>
+    private const float ownEnergyScale = 0.55f;
+
+    /// <summary>How far up and left of the teammate's orb ours sits, as a fraction of a full-size orb.</summary>
+    private const float ownEnergyOffset = 0.42f;
+
+    private static readonly Color ownEnergyTint = new(0.65f, 0.65f, 0.65f);
+
     private static NCombatUi? _ui;
     private static NSpectateHand? _hand;
     private static NSpectateOverlay? _overlay;
@@ -248,6 +256,10 @@ public static class SpectateView
             return;
         }
 
+        // Our own orb may be sitting beside the teammate's as the small one; take it down before anything else, so it
+        // is off-tree like it expects to be when it goes back to being the main orb.
+        HideOwnEnergy();
+
         NStarCounter star = ui._starCounter;
         bool starWasChild = current != null && GodotObject.IsInstanceValid(star) && current.IsAncestorOf(star);
         if (starWasChild)
@@ -282,6 +294,49 @@ public static class SpectateView
         ui.EnergyCounterContainer.SetPosition(
             player.Character.ShouldAlwaysShowStarCounter ? starCounterEnergyPosition : _energyContainerHomePosition,
             keepOffsets: true);
+
+        if (next != _localEnergyCounter)
+        {
+            ShowOwnEnergy();
+        }
+    }
+
+    /// <summary>
+    /// Puts our own orb back in the container, shrunk and to the right of the teammate's. It is the very node we keep
+    /// off-tree while spectating, so entering the tree resubscribes it to our energy and it stays live on its own.
+    /// </summary>
+    private static void ShowOwnEnergy()
+    {
+        NEnergyCounter? own = _localEnergyCounter;
+        if (!SpectateConfig.ShowOwnEnergy || _ui == null || own == null || !GodotObject.IsInstanceValid(own)
+            || own.IsInsideTree())
+        {
+            return;
+        }
+
+        _ui.EnergyCounterContainer.AddChildSafely(own);
+        // Tucked against the big orb's top-left, overlapping it a little so the two read as one group. It scales from
+        // its own top-left corner, so the offset is in fractions of the full-size orb.
+        own.Scale = Vector2.One * ownEnergyScale;
+        own.Position = -own.Size * ownEnergyOffset;
+        // Dimmed so it reads as secondary to the orb of the player being watched. RefreshLabel only tints the inner
+        // layers, never the root, so this stays put until we clear it.
+        own.Modulate = ownEnergyTint;
+    }
+
+    private static void HideOwnEnergy()
+    {
+        NEnergyCounter? own = _localEnergyCounter;
+        if (_ui == null || own == null || !GodotObject.IsInstanceValid(own) || own == _ui._energyCounter
+            || !own.IsInsideTree())
+        {
+            return;
+        }
+
+        own.GetParent()?.RemoveChildSafely(own);
+        own.Scale = Vector2.One;
+        own.Position = Vector2.Zero;
+        own.Modulate = Colors.White;
     }
 
     private static void OnHoverChanged(ulong playerId)
