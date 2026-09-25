@@ -122,7 +122,7 @@ public partial class NSpectateOverlay : Control
         if (target == null || !SpectateConfig.ShowCardPlayVisuals || sync == null)
         {
             ClearTargeting();
-            _hand?.SetPlayState(null, NSpectateHand.PlayVisual.None, Vector2.Zero);
+            _hand?.SetPlayState(null, NSpectateHand.PlayVisual.None, Vector2.Zero, null);
             return;
         }
 
@@ -138,7 +138,11 @@ public partial class NSpectateOverlay : Control
             : picked != null && sync.GetMouseDown(target.NetId)
                 ? NSpectateHand.PlayVisual.Dragging
                 : NSpectateHand.PlayVisual.None;
-        _hand?.SetPlayState(picked, visual, cursor);
+
+        // Handing the aimed creature to the hand lets the card redraw its numbers against that target, so a hit on
+        // something vulnerable reads as the damage it will really do rather than the card's printed value.
+        NCreature? aimed = targeting ? FindCreatureAt(cursor) : null;
+        _hand?.SetPlayState(picked, visual, cursor, aimed?.Entity);
 
         if (!targeting)
         {
@@ -166,7 +170,7 @@ public partial class NSpectateOverlay : Control
         }
         arrow.UpdateDrawingTo(cursor);
 
-        UpdateHoveredCreature(cursor, arrow);
+        UpdateHoveredCreature(aimed, arrow);
     }
 
     /// <summary>
@@ -217,13 +221,17 @@ public partial class NSpectateOverlay : Control
         return creature?.GetTopOfHitbox();
     }
 
-    /// <summary>Mirrors the reticle and the arrow tint on whatever the teammate's cursor is over.</summary>
-    private void UpdateHoveredCreature(Vector2 globalCursor, NTargetingArrow arrow)
+    private static NCreature? FindCreatureAt(Vector2 globalCursor)
     {
-        NCreature? hit = NCombatRoom.Instance?.CreatureNodes
+        return NCombatRoom.Instance?.CreatureNodes
             .FirstOrDefault(c => c.IsInteractable
                                  && GodotObject.IsInstanceValid(c.Hitbox)
                                  && c.Hitbox.GetGlobalRect().HasPoint(globalCursor));
+    }
+
+    /// <summary>Mirrors the reticle and the arrow tint on whatever the teammate's cursor is over.</summary>
+    private void UpdateHoveredCreature(NCreature? hit, NTargetingArrow arrow)
+    {
         if (hit == _reticleCreature)
         {
             return;

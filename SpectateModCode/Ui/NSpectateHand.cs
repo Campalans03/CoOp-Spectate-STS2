@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Godot;
 using MegaCrit.Sts2.Core.Entities.Cards;
+using MegaCrit.Sts2.Core.Entities.Creatures;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Models;
@@ -71,6 +72,8 @@ public partial class NSpectateHand : Control
     private CardModel? _playCard;
     private PlayVisual _playVisual;
     private Vector2 _playCursor;
+    private CardModel? _previewCard;
+    private Creature? _previewTarget;
     private Vector2 _playTargetPosition;
     private Vector2 _playTargetScale = Vector2.One;
 
@@ -133,6 +136,8 @@ public partial class NSpectateHand : Control
         _localHovered = null;
         _playCard = null;
         _playVisual = PlayVisual.None;
+        _previewCard = null;
+        _previewTarget = null;
         ClearCards();
     }
 
@@ -170,10 +175,16 @@ public partial class NSpectateHand : Control
     /// then parks it centre-bottom if it still needs a creature to aim at; a card that needs no target just stays on
     /// the cursor, which is what you see when somebody plays a block.
     /// </summary>
-    public void SetPlayState(CardModel? card, PlayVisual visual, Vector2 globalCursor)
+    /// <param name="previewTarget">
+    /// The creature they are aiming at, so the card can show what it would actually do to that target. A card's
+    /// printed numbers are the base ones; the game recomputes them against the target, which is how six damage reads
+    /// as nine on something vulnerable.
+    /// </param>
+    public void SetPlayState(CardModel? card, PlayVisual visual, Vector2 globalCursor, Creature? previewTarget)
     {
         CardModel? next = card != null && visual != PlayVisual.None && _slots.ContainsKey(card) ? card : null;
         _playCursor = globalCursor;
+        SetPreview(next, next == null ? null : previewTarget);
         if (next == _playCard && visual == _playVisual)
         {
             // Same card in the same state: just follow the cursor, no need to lay the whole fan out again.
@@ -183,6 +194,30 @@ public partial class NSpectateHand : Control
         _playCard = next;
         _playVisual = next == null ? PlayVisual.None : visual;
         Layout();
+    }
+
+    /// <summary>
+    /// Points a mirrored card at the creature it is aimed at, which makes it redraw its numbers against that target.
+    /// Safe on a pooled node: <c>OnReturnedFromPool</c> clears the preview target along with the model.
+    /// </summary>
+    private void SetPreview(CardModel? card, Creature? target)
+    {
+        if (_previewCard == card && _previewTarget == target)
+        {
+            return;
+        }
+        if (_previewCard != null && _previewCard != card
+                                 && _cards.TryGetValue(_previewCard, out NCard? previous)
+                                 && GodotObject.IsInstanceValid(previous))
+        {
+            previous.SetPreviewTarget(null);
+        }
+        _previewCard = card;
+        _previewTarget = target;
+        if (card != null && _cards.TryGetValue(card, out NCard? node) && GodotObject.IsInstanceValid(node))
+        {
+            node.SetPreviewTarget(target);
+        }
     }
 
     /// <summary>Global position of a mirrored card, used as the origin of the teammate's targeting line.</summary>
@@ -477,6 +512,11 @@ public partial class NSpectateHand : Control
         if (_localHovered == card)
         {
             _localHovered = null;
+        }
+        if (_previewCard == card)
+        {
+            _previewCard = null;
+            _previewTarget = null;
         }
     }
 }
