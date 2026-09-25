@@ -57,6 +57,9 @@ public partial class NSpectateHand : Control
     /// </summary>
     private const float playLerpSpeed = 7f;
 
+    /// <summary>How far NPlayerHand.AnimDisable lowers the hand (its <c>_disablePosition</c>).</summary>
+    private const float disabledHandDrop = 100f;
+
     /// <summary>What the teammate is doing with the card they picked up.</summary>
     public enum PlayVisual
     {
@@ -340,10 +343,25 @@ public partial class NSpectateHand : Control
 
     private void FollowRealHand()
     {
-        if (_realHand != null && GodotObject.IsInstanceValid(_realHand.CardHolderContainer))
+        if (_realHand == null || !GodotObject.IsInstanceValid(_realHand)
+                              || !GodotObject.IsInstanceValid(_realHand.CardHolderContainer))
         {
-            GlobalPosition = _realHand.CardHolderContainer.GlobalPosition;
+            return;
         }
+
+        // Once our own turn is over (ended, or dead) NPlayerHand.AnimDisable slides the whole hand down by
+        // _disablePosition and greys it out. That is about our cards being unplayable, not the teammate's, and since we
+        // hang off the hand we would sink with it and lose the bottom of the fan off screen. Undo just that much of the
+        // drop; anything past it is AnimOut at the end of combat, which we still want to follow off screen.
+        float drop = Mathf.Clamp(_realHand.Position.Y, 0f, disabledHandDrop);
+        GlobalPosition = _realHand.CardHolderContainer.GlobalPosition + Vector2.Up * drop;
+
+        // Modulate multiplies down the tree, so the inverse of the hand's tint cancels the grey on our cards.
+        Color tint = _realHand.Modulate;
+        Modulate = new Color(
+            tint.R > 0f ? 1f / tint.R : 1f,
+            tint.G > 0f ? 1f / tint.G : 1f,
+            tint.B > 0f ? 1f / tint.B : 1f);
     }
 
     private void Layout()
