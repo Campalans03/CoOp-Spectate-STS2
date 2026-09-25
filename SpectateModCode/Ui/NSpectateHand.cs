@@ -32,7 +32,11 @@ public partial class NSpectateHand : Control
     /// <summary>The real hand fans cards out over this many slots; beyond it the game itself would throw.</summary>
     private const int maxLayoutCards = 10;
 
-    private const float hoverRaise = 90f;
+    /// <summary>How far the teammate's own hovered card lifts, mirroring what they see.</summary>
+    private const float remoteHoverRaise = 90f;
+
+    /// <summary>How far a card lifts when we point at it ourselves, to read it comfortably.</summary>
+    private const float localHoverRaise = 130f;
 
     private readonly Dictionary<CardModel, Control> _slots = new();
     private readonly Dictionary<CardModel, NCard> _cards = new();
@@ -40,7 +44,8 @@ public partial class NSpectateHand : Control
 
     private NPlayerHand? _realHand;
     private CardPile? _pile;
-    private CardModel? _hovered;
+    private CardModel? _remoteHovered;
+    private CardModel? _localHovered;
 
     public static NSpectateHand Create(NPlayerHand realHand)
     {
@@ -76,19 +81,37 @@ public partial class NSpectateHand : Control
             _pile.CardRemoveFinished -= OnPileChanged;
             _pile = null;
         }
-        _hovered = null;
+        _remoteHovered = null;
+        _localHovered = null;
         ClearCards();
     }
 
     /// <summary>Raises the card the teammate is pointing at, mirroring their hover.</summary>
-    public void SetHovered(AbstractModel? model)
+    public void SetRemoteHovered(AbstractModel? model)
     {
         CardModel? card = model as CardModel;
-        if (card == _hovered)
+        if (card == _remoteHovered)
         {
             return;
         }
-        _hovered = card != null && _slots.ContainsKey(card) ? card : null;
+        _remoteHovered = card != null && _slots.ContainsKey(card) ? card : null;
+        Layout();
+    }
+
+    /// <summary>
+    /// Our own mouse hovering a mirrored card. Independent of what the teammate is doing, so you can read through
+    /// their hand at your own pace instead of waiting for them to point at something.
+    /// </summary>
+    private void SetLocalHovered(CardModel? card)
+    {
+        CardModel? next = card != null && _slots.ContainsKey(card) && SpectateConfig.InspectTeammateCards
+            ? card
+            : null;
+        if (next == _localHovered)
+        {
+            return;
+        }
+        _localHovered = next;
         Layout();
     }
 
@@ -163,15 +186,43 @@ public partial class NSpectateHand : Control
             {
                 node.UpdateVisuals(PileType.Hand, CardPreviewMode.Normal);
             }
+
+            // Our own hover target. Added after the card so it sits last in tree order and wins the mouse pick, and
+            // it is our node rather than the pooled card, so nothing leaks back into the pool.
+            CardModel captured = card;
+            Control hitbox = new()
+            {
+                Name = "Hitbox",
+                MouseFilter = MouseFilterEnum.Stop
+            };
+            hitbox.SetAnchorsPreset(LayoutPreset.FullRect);
+            slot.AddChildSafely(hitbox);
+            hitbox.MouseEntered += () => SetLocalHovered(captured);
+            hitbox.MouseExited += () => OnHitboxExited(captured);
+
             _slots[card] = slot;
             _cards[card] = node;
         }
 
-        if (_hovered != null && !_slots.ContainsKey(_hovered))
+        if (_remoteHovered != null && !_slots.ContainsKey(_remoteHovered))
         {
-            _hovered = null;
+            _remoteHovered = null;
+        }
+        if (_localHovered != null && !_slots.ContainsKey(_localHovered))
+        {
+            _localHovered = null;
         }
         Layout();
+    }
+
+    private void OnHitboxExited(CardModel card)
+    {
+        // Only clear if we are still the card under the cursor; moving between two overlapping cards fires the new
+        // card's Entered before the old card's Exited.
+        if (_localHovered == card)
+        {
+            SetLocalHovered(null);
+        }
     }
 
     private void FollowRealHand()
@@ -209,12 +260,17 @@ public partial class NSpectateHand : Control
             }
 
             slot.Visible = true;
-            bool isHovered = visible[i] == _hovered;
+            // Our own hover wins over the teammate's, so pointing at a card always reads it, whatever they are doing.
+            bool isLocal = visible[i] == _localHovered;
+            bool isRemote = visible[i] == _remoteHovered;
+            bool raised = isLocal || isRemote;
+            float raise = isLocal ? localHoverRaise : remoteHoverRaise;
+
             Vector2 position = HandPosHelper.GetPosition(count, i);
-            slot.Scale = isHovered ? Vector2.One : scale;
-            slot.Rotation = isHovered ? 0f : Mathf.DegToRad(HandPosHelper.GetAngle(count, i));
-            slot.Position = position - NCard.defaultSize * 0.5f + (isHovered ? Vector2.Up * hoverRaise : Vector2.Zero);
-            slot.ZIndex = isHovered ? 1 : 0;
+            slot.Scale = raised ? Vector2.One : scale;
+            slot.Rotation = raised ? 0f : Mathf.DegToRad(HandPosHelper.GetAngle(count, i));
+            slot.Position = position - NCard.defaultSize * 0.5f + (raised ? Vector2.Up * raise : Vector2.Zero);
+            slot.ZIndex = isLocal ? 2 : isRemote ? 1 : 0;
         }
     }
 

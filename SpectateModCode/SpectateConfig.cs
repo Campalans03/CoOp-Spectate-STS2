@@ -48,6 +48,9 @@ public class SpectateConfig : SimpleModConfig
 
     public static bool MirrorHover { get; set; } = true;
 
+    /// <summary>Let our own mouse lift the teammate's cards so we can read them without waiting for them to hover.</summary>
+    public static bool InspectTeammateCards { get; set; } = true;
+
     public static bool ShowCardPlayVisuals { get; set; } = true;
 
     [ConfigSection("Indicators")]

@@ -6,6 +6,7 @@ using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Multiplayer.Game.PeerInput;
+using MegaCrit.Sts2.Core.Nodes;
 using MegaCrit.Sts2.Core.Nodes.Combat;
 using MegaCrit.Sts2.Core.Nodes.Rooms;
 using MegaCrit.Sts2.Core.Runs;
@@ -14,19 +15,20 @@ namespace SpectateMod.SpectateModCode.Ui;
 
 /// <summary>
 /// Everything drawn on top of combat while spectating: the "Spectating" label, the red screen border, and the
-/// teammate's targeting line and selection reticle mirrored into our own view.
+/// teammate's targeting arrow and selection reticle mirrored into our own view.
 /// </summary>
 public partial class NSpectateOverlay : Control
 {
     private const float borderThickness = 6f;
 
     private static readonly Color borderColor = new(0.85f, 0.15f, 0.15f, 0.75f);
-    private static readonly Color lineColor = new(0.9f, 0.25f, 0.25f, 0.85f);
+    /// <summary>Above the combat scene so the arrow is never buried behind a creature.</summary>
+    private const int arrowZIndex = 50;
 
     private readonly List<ColorRect> _border = new();
 
     private Label _label = null!;
-    private Line2D _targetingLine = null!;
+    private NTargetingArrow? _arrow;
     private NSpectateHand? _hand;
     private NCreature? _reticleCreature;
 
@@ -88,15 +90,6 @@ public partial class NSpectateOverlay : Control
             _border.Add(rect);
             this.AddChildSafely(rect);
         }
-
-        _targetingLine = new Line2D
-        {
-            Name = "SpectateTargetingLine",
-            Width = 6f,
-            DefaultColor = lineColor,
-            Visible = false
-        };
-        this.AddChildSafely(_targetingLine);
     }
 
     public void Refresh(Player? target)
@@ -138,34 +131,63 @@ public partial class NSpectateOverlay : Control
             return;
         }
 
-        Vector2 cursor = sync.GetControlSpaceFocusPosition(target.NetId, this);
+        // The synchronizer hands back a position relative to the control we pass in, so lift it to global space.
+        Vector2 cursor = ToGlobalPosition(sync.GetControlSpaceFocusPosition(target.NetId, this));
         Vector2? origin = GetTargetingOrigin(target);
-        if (origin == null)
+        NTargetingArrow? arrow = EnsureArrow();
+        if (origin == null || arrow == null)
         {
             ClearTargeting();
             return;
         }
 
-        _targetingLine.Visible = true;
-        _targetingLine.ClearPoints();
-        _targetingLine.AddPoint(origin.Value);
-        _targetingLine.AddPoint(cursor);
+        // Drive the arrow by hand rather than through StartDrawingFrom: that helper hides the mouse cursor, which is
+        // right when you are the one aiming and very wrong when you are only watching somebody else aim.
+        arrow._followMouse = false;
+        arrow._fromControl = null;
+        arrow._fromPos = origin.Value;
+        if (!arrow.Visible)
+        {
+            arrow._currentArrowPos = origin.Value;
+            arrow.Visible = true;
+        }
+        arrow.UpdateDrawingTo(cursor);
 
-        UpdateReticle(ToGlobalPosition(cursor));
+        UpdateHoveredCreature(cursor, arrow);
+    }
+
+    /// <summary>
+    /// The game's own arrow, parented where its own one lives so it inherits the same transform. It builds its
+    /// segments in _Ready from preloaded combat textures, so a bare instance works.
+    /// </summary>
+    private NTargetingArrow? EnsureArrow()
+    {
+        if (_arrow != null && GodotObject.IsInstanceValid(_arrow))
+        {
+            return _arrow;
+        }
+        NTargetManager? manager = NRun.Instance?.GlobalUi?.TargetManager;
+        if (manager == null)
+        {
+            return null;
+        }
+        _arrow = new NTargetingArrow
+        {
+            Name = "SpectateTargetingArrow",
+            Visible = false,
+            ZIndex = arrowZIndex
+        };
+        manager.AddChildSafely(_arrow);
+        return _arrow;
     }
 
     // Control is a CanvasItem, not a Node2D, so it has no ToLocal/ToGlobal of its own.
-    private Vector2 ToLocalPosition(Vector2 global)
-    {
-        return GetGlobalTransform().AffineInverse() * global;
-    }
-
     private Vector2 ToGlobalPosition(Vector2 local)
     {
         return GetGlobalTransform() * local;
     }
 
-    /// <summary>The line starts at the mirrored card they picked up, or at their own creature if we can't find it.</summary>
+    /// <summary>The arrow starts at the mirrored card they picked up, or at their own creature if we can't find it.</summary>
     private Vector2? GetTargetingOrigin(Player target)
     {
         AbstractModel? selected = RunManager.Instance.HoveredModelTracker?.GetHoveredModel(target.NetId);
@@ -174,16 +196,16 @@ public partial class NSpectateOverlay : Control
             Vector2? center = _hand.GetCardCenter(card);
             if (center != null)
             {
-                return ToLocalPosition(center.Value);
+                return center.Value;
             }
         }
 
         NCreature? creature = NCombatRoom.Instance?.GetCreatureNode(target.Creature);
-        return creature == null ? null : ToLocalPosition(creature.GetTopOfHitbox());
+        return creature?.GetTopOfHitbox();
     }
 
-    /// <summary>Mirrors the reticle the teammate sees on whatever their cursor is over.</summary>
-    private void UpdateReticle(Vector2 globalCursor)
+    /// <summary>Mirrors the reticle and the arrow tint on whatever the teammate's cursor is over.</summary>
+    private void UpdateHoveredCreature(Vector2 globalCursor, NTargetingArrow arrow)
     {
         NCreature? hit = NCombatRoom.Instance?.CreatureNodes
             .FirstOrDefault(c => c.IsInteractable
@@ -195,15 +217,24 @@ public partial class NSpectateOverlay : Control
         }
         HideReticle();
         _reticleCreature = hit;
-        _reticleCreature?.ShowSingleSelectReticle();
+        if (hit == null)
+        {
+            arrow.SetHighlightingOff();
+            return;
+        }
+        hit.ShowSingleSelectReticle();
+        // Same red-for-enemy / green-for-ally tint the game uses when you aim yourself.
+        arrow.SetHighlightingOn(!hit.Entity.IsPlayer);
     }
 
     private void ClearTargeting()
     {
-        if (_targetingLine.Visible)
+        if (_arrow != null && GodotObject.IsInstanceValid(_arrow) && _arrow.Visible)
         {
-            _targetingLine.Visible = false;
-            _targetingLine.ClearPoints();
+            // Deliberately not StopDrawing(): it would force our own mouse cursor back to visible.
+            _arrow.Visible = false;
+            _arrow._currentArrowPos = null;
+            _arrow.SetHighlightingOff();
         }
         HideReticle();
     }
@@ -221,5 +252,10 @@ public partial class NSpectateOverlay : Control
     {
         base._ExitTree();
         HideReticle();
+        if (_arrow != null && GodotObject.IsInstanceValid(_arrow))
+        {
+            _arrow.QueueFreeSafely();
+        }
+        _arrow = null;
     }
 }

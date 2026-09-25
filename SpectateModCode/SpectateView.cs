@@ -293,10 +293,10 @@ public static class SpectateView
         }
         if (!SpectateConfig.MirrorHover)
         {
-            _hand.SetHovered(null);
+            _hand.SetRemoteHovered(null);
             return;
         }
         AbstractModel? hovered = RunManager.Instance.HoveredModelTracker.GetHoveredModel(playerId);
-        _hand.SetHovered(hovered);
+        _hand.SetRemoteHovered(hovered);
     }
 }

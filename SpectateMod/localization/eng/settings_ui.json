@@ -29,8 +29,11 @@
   "SPECTATEMOD-MIRROR_HOVER.title": "Mirror card hover",
   "SPECTATEMOD-MIRROR_HOVER.description": "Raise the card the teammate is inspecting.",
 
+  "SPECTATEMOD-INSPECT_TEAMMATE_CARDS.title": "Inspect their cards with your mouse",
+  "SPECTATEMOD-INSPECT_TEAMMATE_CARDS.description": "Point at a card in the spectated hand to lift it and read it, whatever the teammate is doing.",
+
   "SPECTATEMOD-SHOW_CARD_PLAY_VISUALS.title": "Show card play and targeting",
-  "SPECTATEMOD-SHOW_CARD_PLAY_VISUALS.description": "Draw the teammate's targeting line and selection reticle in your own view.",
+  "SPECTATEMOD-SHOW_CARD_PLAY_VISUALS.description": "Draw the teammate's targeting arrow and selection reticle in your own view.",
 
   "SPECTATEMOD-SHOW_SPECTATING_LABEL.title": "Show \"Spectating\" label",
   "SPECTATEMOD-SHOW_SPECTATING_LABEL.description": "Show the name of the player you are watching at the top of the screen.",
