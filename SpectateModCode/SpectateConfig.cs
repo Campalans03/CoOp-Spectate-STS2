@@ -59,6 +59,9 @@ public class SpectateConfig : SimpleModConfig
     /// <summary>Show the watched player's relics in the top bar instead of ours.</summary>
     public static bool ReplaceRelics { get; set; } = true;
 
+    /// <summary>Show the watched player's potions in the top bar instead of ours. Look only: they can't be used.</summary>
+    public static bool ReplacePotions { get; set; } = true;
+
     public static bool MirrorHover { get; set; } = true;
 
     /// <summary>Let our own mouse lift the teammate's cards so we can read them without waiting for them to hover.</summary>

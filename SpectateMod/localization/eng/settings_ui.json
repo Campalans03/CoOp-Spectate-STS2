@@ -35,6 +35,9 @@
   "SPECTATEMOD-REPLACE_RELICS.title": "Replace relics",
   "SPECTATEMOD-REPLACE_RELICS.description": "Show the spectated teammate's relics in the top bar instead of your own.",
 
+  "SPECTATEMOD-REPLACE_POTIONS.title": "Replace potions",
+  "SPECTATEMOD-REPLACE_POTIONS.description": "Show the spectated teammate's potions in the top bar instead of your own. You can read them, but not use them.",
+
   "SPECTATEMOD-MIRROR_HOVER.title": "Mirror card hover",
   "SPECTATEMOD-MIRROR_HOVER.description": "Raise the card the teammate is inspecting.",
 

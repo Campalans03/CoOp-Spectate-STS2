@@ -34,6 +34,7 @@ public static class SpectateView
     private static NSpectateOverlay? _overlay;
     private static NSpectateInput? _input;
     private static NSpectatePeekBar? _peekBar;
+    private static NSpectatePotionBelt? _potionBelt;
 
     private static Player? _localPlayer;
     private static NEnergyCounter? _localEnergyCounter;
@@ -91,8 +92,9 @@ public static class SpectateView
         }
 
         RestoreCombatUi();
-        // It outlives this combat, so it must never be left showing somebody else's relics.
+        // Both live in the run's top bar and outlive this combat, so they must never be left showing somebody else's.
         ApplyRelics(null);
+        ApplyPotions(null);
 
         _hand?.QueueFreeSafely();
         _overlay?.QueueFreeSafely();
@@ -121,6 +123,7 @@ public static class SpectateView
             ApplyHand();
             ApplyCombatUi(target);
             ApplyRelics(target);
+            ApplyPotions(target);
             _overlay?.Refresh(target);
         }
         catch (Exception e)
@@ -264,6 +267,20 @@ public static class SpectateView
         catch (Exception e)
         {
             MainFile.Logger.Error($"Failed to swap the relic row: {e}");
+        }
+    }
+
+    /// <summary>Same idea as <see cref="ApplyRelics" />, but through a read-only copy: see <see cref="NSpectatePotionBelt" />.</summary>
+    private static void ApplyPotions(Player? target)
+    {
+        try
+        {
+            NSpectatePotionBelt.Show(ref _potionBelt, target != null && SpectateConfig.ReplacePotions ? target : null);
+        }
+        catch (Exception e)
+        {
+            MainFile.Logger.Error($"Failed to swap the potion belt: {e}");
+            _potionBelt = null;
         }
     }
 
