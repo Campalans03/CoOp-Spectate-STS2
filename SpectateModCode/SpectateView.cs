@@ -40,6 +40,7 @@ public static class SpectateView
     private static NEnergyCounter? _localEnergyCounter;
     private static Vector2 _energyContainerHomePosition;
     private static bool _uiSwapped;
+    private static bool _localStarCounterVisible;
 
     public static void Install(NCombatUi ui, CombatState state)
     {
@@ -53,6 +54,7 @@ public static class SpectateView
         _localPlayer = SpectateController.Me;
         _localEnergyCounter = ui._energyCounter;
         _energyContainerHomePosition = ui.EnergyCounterContainer.Position;
+        _localStarCounterVisible = ui._starCounter.Visible;
 
         _hand = NSpectateHand.Create(ui.Hand);
         _hand.Visible = false;
@@ -341,14 +343,29 @@ public static class SpectateView
             typeof(Action), pile, AccessTools.Method(typeof(NCombatCardPile), "AddCard"));
     }
 
+    /// <summary>
+    /// NStarCounter.RefreshVisibility only ever turns the counter on (<c>Visible = Visible || ...</c>), so after
+    /// watching somebody with stars it would stay up on our side for good. Start each player from hidden and let
+    /// Initialize decide; for ourselves, put back whatever the game had, since it keeps the counter once we have had
+    /// stars even after spending them.
+    /// </summary>
     private static void RebindStarCounter(Player player)
     {
         NStarCounter counter = _ui!._starCounter;
+        if (counter._player == player)
+        {
+            return;
+        }
+        if (counter._player == _localPlayer)
+        {
+            _localStarCounterVisible = counter.Visible;
+        }
         if (counter._player != null && counter._isListeningToCombatState)
         {
             counter._player.PlayerCombatState!.StarsChanged -= counter.OnStarsChanged;
             counter._isListeningToCombatState = false;
         }
+        counter.Visible = player == _localPlayer && _localStarCounterVisible;
         counter.Initialize(player);
     }
 
