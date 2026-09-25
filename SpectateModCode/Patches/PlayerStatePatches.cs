@@ -21,12 +21,12 @@ public static class PlayerStatePatches
     {
         try
         {
-            if (__instance.Player == null || __instance._characterIcon == null)
+            if (__instance.Player == null)
             {
                 return;
             }
             NSpectateToggleButton button = NSpectateToggleButton.Create(__instance.Player);
-            button.AttachNextTo(__instance._characterIcon, __instance);
+            button.AttachTo(__instance);
         }
         catch (Exception e)
         {

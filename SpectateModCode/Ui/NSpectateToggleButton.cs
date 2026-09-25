@@ -5,14 +5,15 @@ using MegaCrit.Sts2.Core.Context;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Nodes.GodotExtensions;
+using MegaCrit.Sts2.Core.Nodes.Multiplayer;
 using MegaCrit.Sts2.Core.Nodes.Rooms;
 using MegaCrit.Sts2.Core.Rooms;
 
 namespace SpectateMod.SpectateModCode.Ui;
 
 /// <summary>
-/// The little eye next to a player's icon in the top-left party list: click it to start or stop watching that player,
-/// without having to find and click their character in the combat scene.
+/// The little eye at the end of a player's row in the top-left party list: click it to start or stop watching that
+/// player, without having to find and click their character in the combat scene.
 /// <para>
 /// The eye is drawn rather than textured so the mod needs no art assets, and the clickable part is a stock
 /// <see cref="NButton" /> so it picks up the game's hover and click sounds.
@@ -21,11 +22,12 @@ namespace SpectateMod.SpectateModCode.Ui;
 public partial class NSpectateToggleButton : Control
 {
     private const float buttonSize = 34f;
-    private const float iconGap = 6f;
+
+    /// <summary>Clearance between the end of the panel's own content and the eye.</summary>
+    private const float panelGap = 8f;
 
     private static readonly Color idleColor = new(0.78f, 0.74f, 0.68f, 0.85f);
     private static readonly Color activeColor = new(0.90f, 0.25f, 0.25f);
-    private static readonly Color disabledColor = new(0.55f, 0.53f, 0.50f, 0.35f);
 
     private enum Look
     {
@@ -43,7 +45,7 @@ public partial class NSpectateToggleButton : Control
     }
 
     private Player _player = null!;
-    private Control? _followTarget;
+    private NMultiplayerPlayerState? _panel;
     private Look _look = Look.Unavailable;
 
     public static NSpectateToggleButton Create(Player player)
@@ -77,22 +79,38 @@ public partial class NSpectateToggleButton : Control
     }
 
     /// <summary>
-    /// Sits the button next to <paramref name="icon" />. When the icon lives in a box container we insert ourselves
-    /// right after it and let the container do the layout; otherwise we track the icon's global position each frame.
-    /// Either way the mod makes no assumptions about the shape of the game's scene.
+    /// Parks the eye just past the right edge of the player's row, vertically centred on it.
+    /// <para>
+    /// Every other spot in the row is taken: the character icon is covered edge to edge by the turn-end, disconnected
+    /// and network-problem indicators, the name and the energy, star and card counters run to x=261, and the health
+    /// bar sits under them. Putting the eye inside the row buried it under the health text. Past the end of the row
+    /// there is nothing but empty screen.
+    /// </para>
     /// </summary>
-    public void AttachNextTo(Control icon, Control fallbackParent)
+    public void AttachTo(NMultiplayerPlayerState panel)
     {
-        if (icon.GetParent() is BoxContainer box)
+        _panel = panel;
+        panel.AddChildSafely(this);
+        Reposition();
+    }
+
+    /// <summary>
+    /// The top info container overhangs the panel's own width, so clear whichever reaches further right. Recomputed
+    /// each frame rather than measured once, so it survives a relayout.
+    /// </summary>
+    private void Reposition()
+    {
+        if (_panel == null || !GodotObject.IsInstanceValid(_panel))
         {
-            box.AddChildSafely(this);
-            box.MoveChildSafely(this, icon.GetIndex() + 1);
-            MouseFilter = MouseFilterEnum.Ignore;
             return;
         }
-
-        _followTarget = icon;
-        fallbackParent.AddChildSafely(this);
+        float right = _panel.Size.X;
+        Control? top = _panel._topContainer;
+        if (top != null && GodotObject.IsInstanceValid(top))
+        {
+            right = Mathf.Max(right, top.Position.X + top.Size.X);
+        }
+        Position = new Vector2(right + panelGap, (_panel.Size.Y - Size.Y) * 0.5f);
     }
 
     public override void _Ready()
@@ -110,11 +128,7 @@ public partial class NSpectateToggleButton : Control
     public override void _Process(double delta)
     {
         base._Process(delta);
-        if (_followTarget != null && GodotObject.IsInstanceValid(_followTarget))
-        {
-            GlobalPosition = _followTarget.GlobalPosition
-                             + new Vector2(_followTarget.Size.X * _followTarget.Scale.X + iconGap, 0f);
-        }
+        Reposition();
         // Availability follows combat, which has no single event we can hang this off, so re-evaluate each frame.
         // Refresh only redraws when the look actually changes.
         Refresh();
