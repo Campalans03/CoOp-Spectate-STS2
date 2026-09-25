@@ -266,10 +266,13 @@ public partial class NSpectateHand : Control
             bool raised = isLocal || isRemote;
             float raise = isLocal ? localHoverRaise : remoteHoverRaise;
 
+            // HandPosHelper returns the card's top-left, not its centre: the real hand assigns these straight to a
+            // holder's Position, and NCardHolder parks its card at Vector2.Zero inside itself. Treating it as a
+            // centre shifted the whole fan half a card up and to the left.
             Vector2 position = HandPosHelper.GetPosition(count, i);
             slot.Scale = raised ? Vector2.One : scale;
             slot.Rotation = raised ? 0f : Mathf.DegToRad(HandPosHelper.GetAngle(count, i));
-            slot.Position = position - NCard.defaultSize * 0.5f + (raised ? Vector2.Up * raise : Vector2.Zero);
+            slot.Position = position + (raised ? Vector2.Up * raise : Vector2.Zero);
             slot.ZIndex = isLocal ? 2 : isRemote ? 1 : 0;
         }
     }
