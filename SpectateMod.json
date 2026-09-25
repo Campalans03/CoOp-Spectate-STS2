@@ -1,6 +1,6 @@
 ﻿{
   "id": "SpectateMod",
-  "name": "SpectateMod",
+  "name": "Co-op Spectate",
   "author": "JCampalans",
   "description": "Watch your co-op teammates: click a teammate or finish your turn to see their hand, combat UI, hover and targeting.",
   "version": "v0.0.0",
