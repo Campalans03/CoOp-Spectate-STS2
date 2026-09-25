@@ -134,9 +134,9 @@ public partial class NSpectateHand : Control
         {
             return null;
         }
-        // Slots scale and rotate around their pivot, which sits at the middle of the unscaled rect, so the visual
-        // centre is the pivot and scale doesn't come into it.
-        return slot.GlobalPosition + NCard.defaultSize * 0.5f;
+        // The slot's origin is already the card's centre, and a zero pivot means scale and rotation leave that point
+        // alone, so its global position is the centre outright.
+        return slot.GlobalPosition;
     }
 
     public override void _Process(double delta)
@@ -185,12 +185,15 @@ public partial class NSpectateHand : Control
                 continue;
             }
 
+            // A holder's origin is the centre of its card, not a corner: hand_card_holder.tscn leaves pivot_offset at
+            // zero and hangs a hitbox spanning -150,-211 to 150,211 off that origin, and card.tscn likewise centres
+            // its art on its own origin. So the slot keeps a zero pivot and simply sits on the point the fan gives
+            // us, with the card at zero inside it.
             Control slot = new()
             {
                 Name = $"SpectateSlot-{card.Id}",
                 MouseFilter = MouseFilterEnum.Ignore,
-                Size = NCard.defaultSize,
-                PivotOffset = NCard.defaultSize * 0.5f
+                PivotOffset = Vector2.Zero
             };
             _cardLayer.AddChildSafely(slot);
             slot.AddChildSafely(node);
@@ -287,9 +290,6 @@ public partial class NSpectateHand : Control
             bool raised = isLocal || isRemote;
             float raise = isLocal ? localHoverRaise : remoteHoverRaise;
 
-            // HandPosHelper returns the card's top-left, not its centre: the real hand assigns these straight to a
-            // holder's Position, and NCardHolder parks its card at Vector2.Zero inside itself. Treating it as a
-            // centre shifted the whole fan half a card up and to the left.
             Vector2 position = HandPosHelper.GetPosition(count, i);
             float angle = Mathf.DegToRad(HandPosHelper.GetAngle(count, i));
             slot.Scale = raised ? Vector2.One : scale;
@@ -299,9 +299,11 @@ public partial class NSpectateHand : Control
 
             if (hitbox != null)
             {
-                // Always the resting rect, never the lifted one, so hovering can't move its own target.
+                // Always the resting rect, never the lifted one, so hovering can't move its own target. A Control's
+                // Position is its top-left corner, and the fan gives us a centre, so step back half a card - the same
+                // thing the real holder's hitbox does with its -150,-211 offsets.
                 hitbox.Visible = true;
-                hitbox.Position = position;
+                hitbox.Position = position - NCard.defaultSize * 0.5f;
                 hitbox.Scale = scale;
                 hitbox.Rotation = angle;
             }
