@@ -118,21 +118,34 @@ public partial class NSpectateOverlay : Control
     {
         base._Process(delta);
         Player? target = SpectateController.Target;
-        if (target == null || !SpectateConfig.ShowCardPlayVisuals)
-        {
-            ClearTargeting();
-            return;
-        }
-
         PeerInputSynchronizer? sync = RunManager.Instance.InputSynchronizer;
-        if (sync == null || !sync.GetIsTargeting(target.NetId))
+        if (target == null || !SpectateConfig.ShowCardPlayVisuals || sync == null)
         {
             ClearTargeting();
+            _hand?.SetPlayState(null, NSpectateHand.PlayVisual.None, Vector2.Zero);
             return;
         }
 
         // The synchronizer hands back a position relative to the control we pass in, so lift it to global space.
         Vector2 cursor = ToGlobalPosition(sync.GetControlSpaceFocusPosition(target.NetId, this));
+        CardModel? picked = RunManager.Instance.HoveredModelTracker?.GetHoveredModel(target.NetId) as CardModel;
+        bool targeting = sync.GetIsTargeting(target.NetId);
+
+        // NTargetManager only raises the targeting flag for cards that need a creature picked. A card that needs no
+        // target never sets it, so a held mouse button on a picked card is the game dragging it along the cursor.
+        NSpectateHand.PlayVisual visual = targeting
+            ? NSpectateHand.PlayVisual.Targeting
+            : picked != null && sync.GetMouseDown(target.NetId)
+                ? NSpectateHand.PlayVisual.Dragging
+                : NSpectateHand.PlayVisual.None;
+        _hand?.SetPlayState(picked, visual, cursor);
+
+        if (!targeting)
+        {
+            ClearTargeting();
+            return;
+        }
+
         Vector2? origin = GetTargetingOrigin(target);
         NTargetingArrow? arrow = EnsureArrow();
         if (origin == null || arrow == null)

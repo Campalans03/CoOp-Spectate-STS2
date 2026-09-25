@@ -41,6 +41,30 @@ public partial class NSpectateHand : Control
     /// <summary>A gentler lift for the teammate's card while we are reading a different one.</summary>
     private const float secondaryRaise = 70f;
 
+    /// <summary>How far the card next to the one being read slides away, tapering off over four slots.</summary>
+    private const float neighbourPush = 100f;
+
+    private const int neighbourPushFalloff = 4;
+
+    /// <summary>Scale NCardPlay.CenterCard puts a card at once it is being aimed.</summary>
+    private const float targetingScale = 0.75f;
+
+    /// <summary>What the teammate is doing with the card they picked up.</summary>
+    public enum PlayVisual
+    {
+        None,
+
+        /// <summary>Held on the cursor, the way an untargeted card like a block is played.</summary>
+        Dragging,
+
+        /// <summary>Parked centre-bottom while they aim, with the arrow running off it.</summary>
+        Targeting
+    }
+
+    private CardModel? _playCard;
+    private PlayVisual _playVisual;
+    private Vector2 _playCursor;
+
     private readonly Dictionary<CardModel, Control> _slots = new();
     private readonly Dictionary<CardModel, NCard> _cards = new();
     private readonly Dictionary<CardModel, Control> _hitboxes = new();
@@ -98,6 +122,8 @@ public partial class NSpectateHand : Control
         }
         _remoteHovered = null;
         _localHovered = null;
+        _playCard = null;
+        _playVisual = PlayVisual.None;
         ClearCards();
     }
 
@@ -127,6 +153,26 @@ public partial class NSpectateHand : Control
             return;
         }
         _localHovered = next;
+        Layout();
+    }
+
+    /// <summary>
+    /// Mirrors a card the teammate has picked up. The game drags a card on the cursor until it reaches the play zone,
+    /// then parks it centre-bottom if it still needs a creature to aim at; a card that needs no target just stays on
+    /// the cursor, which is what you see when somebody plays a block.
+    /// </summary>
+    public void SetPlayState(CardModel? card, PlayVisual visual, Vector2 globalCursor)
+    {
+        CardModel? next = card != null && visual != PlayVisual.None && _slots.ContainsKey(card) ? card : null;
+        _playCursor = globalCursor;
+        if (next == _playCard && visual == _playVisual)
+        {
+            // Same card in the same state: just follow the cursor, no need to lay the whole fan out again.
+            ApplyPlayVisual();
+            return;
+        }
+        _playCard = next;
+        _playVisual = next == null ? PlayVisual.None : visual;
         Layout();
     }
 
@@ -270,6 +316,7 @@ public partial class NSpectateHand : Control
         // One card at a time is read in full, the way the game only ever focuses one holder. Ours wins over the
         // teammate's, so pointing at a card always reads it whatever they are doing.
         CardModel? focus = _localHovered ?? _remoteHovered;
+        int focusIndex = focus == null ? -1 : visible.IndexOf(focus);
 
         for (int i = 0; i < visible.Count; i++)
         {
@@ -291,14 +338,30 @@ public partial class NSpectateHand : Control
             }
 
             slot.Visible = true;
-            bool isFocus = visible[i] == focus;
+            bool isPlayed = visible[i] == _playCard;
+            bool isFocus = !isPlayed && visible[i] == focus;
             // The teammate's card still peeks up while we are reading a different one, so we don't lose track of it.
-            bool isSecondary = !isFocus && visible[i] == _remoteHovered;
+            bool isSecondary = !isPlayed && !isFocus && visible[i] == _remoteHovered;
 
             Vector2 position = HandPosHelper.GetPosition(count, i);
             float angle = Mathf.DegToRad(HandPosHelper.GetAngle(count, i));
+            if (focusIndex > -1)
+            {
+                // The rest of the fan slides away from the card being read, exactly as RefreshLayout does it. The
+                // focused card's own push is zero, so the card you are pointing at never moves under your cursor.
+                float push = Mathf.Lerp(neighbourPush, 0f,
+                    Mathf.Min(1f, (float)Mathf.Abs(focusIndex - i) / neighbourPushFalloff));
+                position += Vector2.Left * Mathf.Sign(focusIndex - i) * push;
+            }
 
-            if (isFocus)
+            if (isPlayed)
+            {
+                // Driven by the cursor or parked centre-bottom; either way it has left the fan.
+                slot.Rotation = 0f;
+                slot.ZIndex = 3;
+                ApplyPlayVisual(slot);
+            }
+            else if (isFocus)
             {
                 // An absolute height, not a lift: the fan puts the middle card higher than the edges, so adding a
                 // fixed amount left the outer cards short. This is the game's own formula for a focused holder
@@ -321,13 +384,38 @@ public partial class NSpectateHand : Control
             {
                 // Always the resting rect, never the lifted one, so hovering can't move its own target. A Control's
                 // Position is its top-left corner, and the fan gives us a centre, so step back half a card - the same
-                // thing the real holder's hitbox does with its -150,-211 offsets.
-                hitbox.Visible = true;
+                // thing the real holder's hitbox does with its -150,-211 offsets. The push is included so targets
+                // track the cards they stand for; the focused card's push is zero, so it stays put under the cursor.
+                hitbox.Visible = !isPlayed;
                 hitbox.Position = position - NCard.defaultSize * 0.5f;
                 hitbox.Scale = scale;
                 hitbox.Rotation = angle;
             }
         }
+    }
+
+    private void ApplyPlayVisual()
+    {
+        if (_playCard != null && _slots.TryGetValue(_playCard, out Control? slot) && GodotObject.IsInstanceValid(slot))
+        {
+            ApplyPlayVisual(slot);
+        }
+    }
+
+    private void ApplyPlayVisual(Control slot)
+    {
+        if (_playVisual == PlayVisual.Targeting)
+        {
+            // NCardPlay.CenterCard: centred horizontally, sitting three quarters of a scaled card up from the bottom.
+            Vector2 viewport = GetViewportRect().Size;
+            slot.Scale = Vector2.One * targetingScale;
+            slot.GlobalPosition = new Vector2(
+                viewport.X * 0.5f,
+                viewport.Y - NCard.defaultSize.Y * targetingScale * 0.5f);
+            return;
+        }
+        slot.Scale = Vector2.One;
+        slot.GlobalPosition = _playCursor;
     }
 
     private void ClearCards()
