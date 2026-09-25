@@ -32,11 +32,14 @@ public partial class NSpectateHand : Control
     /// <summary>The real hand fans cards out over this many slots; beyond it the game itself would throw.</summary>
     private const int maxLayoutCards = 10;
 
-    /// <summary>How far the teammate's own hovered card lifts, mirroring what they see.</summary>
-    private const float remoteHoverRaise = 90f;
+    /// <summary>
+    /// Centre height of the card being read, in the hand's own space. Mirrors what NPlayerHand.RefreshLayout does to
+    /// a focused holder: <c>-Hitbox.Size.Y * 0.5f + 2f</c>, with the hitbox being one card tall.
+    /// </summary>
+    private static readonly float focusCentreY = -(NCard.defaultSize.Y * 0.5f) + 2f;
 
-    /// <summary>How far a card lifts when we point at it ourselves, to read it comfortably.</summary>
-    private const float localHoverRaise = 130f;
+    /// <summary>A gentler lift for the teammate's card while we are reading a different one.</summary>
+    private const float secondaryRaise = 70f;
 
     private readonly Dictionary<CardModel, Control> _slots = new();
     private readonly Dictionary<CardModel, NCard> _cards = new();
@@ -264,6 +267,10 @@ public partial class NSpectateHand : Control
         }
 
         Vector2 scale = HandPosHelper.GetScale(count);
+        // One card at a time is read in full, the way the game only ever focuses one holder. Ours wins over the
+        // teammate's, so pointing at a card always reads it whatever they are doing.
+        CardModel? focus = _localHovered ?? _remoteHovered;
+
         for (int i = 0; i < visible.Count; i++)
         {
             Control slot = _slots[visible[i]];
@@ -284,18 +291,31 @@ public partial class NSpectateHand : Control
             }
 
             slot.Visible = true;
-            // Our own hover wins over the teammate's, so pointing at a card always reads it, whatever they are doing.
-            bool isLocal = visible[i] == _localHovered;
-            bool isRemote = visible[i] == _remoteHovered;
-            bool raised = isLocal || isRemote;
-            float raise = isLocal ? localHoverRaise : remoteHoverRaise;
+            bool isFocus = visible[i] == focus;
+            // The teammate's card still peeks up while we are reading a different one, so we don't lose track of it.
+            bool isSecondary = !isFocus && visible[i] == _remoteHovered;
 
             Vector2 position = HandPosHelper.GetPosition(count, i);
             float angle = Mathf.DegToRad(HandPosHelper.GetAngle(count, i));
-            slot.Scale = raised ? Vector2.One : scale;
-            slot.Rotation = raised ? 0f : angle;
-            slot.Position = position + (raised ? Vector2.Up * raise : Vector2.Zero);
-            slot.ZIndex = isLocal ? 2 : isRemote ? 1 : 0;
+
+            if (isFocus)
+            {
+                // An absolute height, not a lift: the fan puts the middle card higher than the edges, so adding a
+                // fixed amount left the outer cards short. This is the game's own formula for a focused holder
+                // (-Hitbox.Size.Y * 0.5f + 2f), which lands the card's bottom edge 2px past the hand's baseline and
+                // so shows the whole card whichever slot it came from.
+                slot.Scale = Vector2.One;
+                slot.Rotation = 0f;
+                slot.Position = new Vector2(position.X, focusCentreY);
+                slot.ZIndex = 2;
+            }
+            else
+            {
+                slot.Scale = isSecondary ? Vector2.One : scale;
+                slot.Rotation = isSecondary ? 0f : angle;
+                slot.Position = position + (isSecondary ? Vector2.Up * secondaryRaise : Vector2.Zero);
+                slot.ZIndex = isSecondary ? 1 : 0;
+            }
 
             if (hitbox != null)
             {
