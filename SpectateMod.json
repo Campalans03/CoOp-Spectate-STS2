@@ -3,7 +3,7 @@
   "name": "Co-op Spectate",
   "author": "JCampalans",
   "description": "Watch your co-op teammates: click a teammate or finish your turn to see their hand, combat UI, hover and targeting.",
-  "version": "v0.0.0",
+  "version": "v1.0.0",
   "min_game_version": "0.107.0",
   "has_pck": true,
   "has_dll": true,
