@@ -11,6 +11,12 @@
   "SPECTATEMOD-MANUAL_SPECTATE_ON_CLICK.title": "Click a teammate to spectate",
   "SPECTATEMOD-MANUAL_SPECTATE_ON_CLICK.description": "Click a teammate to start or stop spectating them. Click your own character to stop spectating.",
 
+  "SPECTATEMOD-SHOW_SPECTATE_BUTTONS.title": "Spectate button in the party list",
+  "SPECTATEMOD-SHOW_SPECTATE_BUTTONS.description": "Show an eye next to each player's icon in the top-left party list to start or stop watching them.",
+
+  "SPECTATEMOD-AUTO_SPECTATE_ON_DEATH.title": "Auto spectate when you die",
+  "SPECTATEMOD-AUTO_SPECTATE_ON_DEATH.description": "Start watching a teammate as soon as you die. Prefers someone still taking their turn, but will settle for any teammate who is alive.",
+
   "SPECTATEMOD-PREFERRED_TEAMMATE_SLOT.title": "Preferred teammate slot",
   "SPECTATEMOD-PREFERRED_TEAMMATE_SLOT.description": "Teammate to prefer for auto spectate. 0 picks the first eligible teammate. If the preferred teammate is dead or has ended their turn, another eligible teammate is used.",
 

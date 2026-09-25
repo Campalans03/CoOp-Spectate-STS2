@@ -25,6 +25,15 @@ public class SpectateConfig : SimpleModConfig
 
     public static bool ManualSpectateOnClick { get; set; } = true;
 
+    /// <summary>Eye button next to each player's icon in the top-left party list.</summary>
+    public static bool ShowSpectateButtons { get; set; } = true;
+
+    /// <summary>
+    /// Start watching a teammate the moment you die, without waiting for the end-of-turn switch. Prefers someone who
+    /// is still taking their turn, but will settle for any teammate who is alive.
+    /// </summary>
+    public static bool AutoSpectateOnDeath { get; set; } = true;
+
     /// <summary>
     /// Preferred teammate for auto-spectate, as a 1-based position in slot order. 0 means "first eligible teammate".
     /// If the preferred teammate is dead or has already ended their turn, we fall back to another eligible one.

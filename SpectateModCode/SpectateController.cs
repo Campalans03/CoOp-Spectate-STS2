@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using MegaCrit.Sts2.Core.Combat;
 using MegaCrit.Sts2.Core.Context;
+using MegaCrit.Sts2.Core.Entities.Creatures;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Platform;
 using MegaCrit.Sts2.Core.Rooms;
@@ -17,6 +18,7 @@ namespace SpectateMod.SpectateModCode;
 public static class SpectateController
 {
     private static CombatState? _state;
+    private static Creature? _localCreature;
     private static bool _subscribed;
 
     /// <summary>The teammate currently being watched, or null when we are looking at our own board.</summary>
@@ -48,6 +50,14 @@ public static class SpectateController
         CombatManager.Instance.TurnStarted += OnTurnStarted;
         CombatManager.Instance.CreaturesChanged += OnCreaturesChanged;
         CombatManager.Instance.CombatEnded += OnCombatEnded;
+
+        // A Player keeps the same Creature for the whole run, so hold the reference we subscribed to and detach from
+        // that exact one later rather than looking it up again.
+        _localCreature = Me?.Creature;
+        if (_localCreature != null)
+        {
+            _localCreature.Died += OnLocalCreatureDied;
+        }
         _subscribed = true;
     }
 
@@ -63,8 +73,16 @@ public static class SpectateController
             CombatManager.Instance.CombatEnded -= OnCombatEnded;
             _subscribed = false;
         }
+        if (_localCreature != null)
+        {
+            _localCreature.Died -= OnLocalCreatureDied;
+            _localCreature = null;
+        }
         _state = null;
     }
+
+    /// <summary>A dead player has no turn of their own to come back to, which relaxes what counts as a good target.</summary>
+    public static bool IsLocalPlayerDead => Me?.Creature is { IsDead: true };
 
     public static Player? Me => _state == null ? null : LocalContext.GetMe(_state);
 
@@ -150,17 +168,25 @@ public static class SpectateController
     /// <summary>Picks the best teammate to auto-spectate, honouring the preferred-slot option.</summary>
     public static Player? PickAutoTarget()
     {
+        Player? stillPlaying = PickBy(IsAutoEligible);
+        if (stillPlaying != null)
+        {
+            return stillPlaying;
+        }
+        // Once we are dead there is nothing to come back to, so watching a teammate who has already ended their turn
+        // still beats staring at our own corpse.
+        return IsLocalPlayerDead ? PickBy(CanSpectate) : null;
+    }
+
+    private static Player? PickBy(Func<Player, bool> predicate)
+    {
         IReadOnlyList<Player> teammates = Teammates();
         int preferred = SpectateConfig.PreferredTeammateSlot;
-        if (preferred > 0 && preferred <= teammates.Count)
+        if (preferred > 0 && preferred <= teammates.Count && predicate(teammates[preferred - 1]))
         {
-            Player candidate = teammates[preferred - 1];
-            if (IsAutoEligible(candidate))
-            {
-                return candidate;
-            }
+            return teammates[preferred - 1];
         }
-        return teammates.FirstOrDefault(IsAutoEligible);
+        return teammates.FirstOrDefault(predicate);
     }
 
     private static void Raise()
@@ -213,6 +239,12 @@ public static class SpectateController
 
     private static void OnTurnStarted(CombatState state)
     {
+        if (IsLocalPlayerDead)
+        {
+            // No turn of ours is starting, so don't yank the camera back to a corpse.
+            EnsureDeathSpectate();
+            return;
+        }
         Stop();
     }
 
@@ -224,12 +256,69 @@ public static class SpectateController
         }
     }
 
+    private static void OnLocalCreatureDied(Creature creature)
+    {
+        if (!SpectateConfig.AutoSpectateOnDeath)
+        {
+            return;
+        }
+        // Don't override a teammate the player deliberately picked; only fill an empty view.
+        if (IsSpectating)
+        {
+            return;
+        }
+        Player? target = PickAutoTarget();
+        if (target != null)
+        {
+            Start(target, autoPicked: true);
+        }
+    }
+
+    /// <summary>
+    /// Keeps a dead player looking at somebody worth watching: stays put while the current target is still taking
+    /// their turn, otherwise moves on to whoever is left.
+    /// </summary>
+    private static void EnsureDeathSpectate()
+    {
+        if (!SpectateConfig.AutoSpectateOnDeath)
+        {
+            if (!CanSpectate(Target))
+            {
+                Stop();
+            }
+            return;
+        }
+
+        if (Target != null && IsAutoEligible(Target))
+        {
+            return;
+        }
+
+        Player? best = PickAutoTarget();
+        if (best == null)
+        {
+            Stop();
+            return;
+        }
+        if (best != Target)
+        {
+            Target = best;
+            IsAutoPicked = true;
+            Raise();
+        }
+    }
+
     /// <summary>
     /// The current target stopped being watchable. Auto-spectate rolls on to the next eligible teammate;
     /// a manually chosen target just ends, because silently swapping who you clicked on would be confusing.
     /// </summary>
     private static void RepickOrStop()
     {
+        if (IsLocalPlayerDead)
+        {
+            EnsureDeathSpectate();
+            return;
+        }
         if (!IsAutoPicked || !SpectateConfig.AutoSpectateAfterEndTurn)
         {
             Stop();
