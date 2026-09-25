@@ -33,6 +33,7 @@ public static class SpectateView
     private static NSpectateHand? _hand;
     private static NSpectateOverlay? _overlay;
     private static NSpectateInput? _input;
+    private static NSpectatePeekBar? _peekBar;
 
     private static Player? _localPlayer;
     private static NEnergyCounter? _localEnergyCounter;
@@ -64,6 +65,10 @@ public static class SpectateView
         _input = NSpectateInput.Create();
         ui.AddChildSafely(_input);
 
+        // Added after the overlay so it sits above it; the overlay ignores the mouse, but this has to receive it.
+        _peekBar = NSpectatePeekBar.Create(ui, state);
+        ui.AddChildSafely(_peekBar);
+
         SpectateController.TargetChanged += OnTargetChanged;
         RunManager.Instance.HoveredModelTracker.HoverChanged += OnHoverChanged;
     }
@@ -90,9 +95,12 @@ public static class SpectateView
         _hand?.QueueFreeSafely();
         _overlay?.QueueFreeSafely();
         _input?.QueueFreeSafely();
+        _peekBar?.QueueFreeSafely();
         _hand = null;
         _overlay = null;
         _input = null;
+        _peekBar = null;
+        PeekPlayer = null;
         _ui = null;
         _localPlayer = null;
         _localEnergyCounter = null;
@@ -108,13 +116,9 @@ public static class SpectateView
 
         try
         {
-            ApplyHand(target);
+            ApplyHand();
             ApplyCombatUi(target);
             _overlay?.Refresh(target);
-            if (target != null)
-            {
-                OnHoverChanged(target.NetId);
-            }
         }
         catch (Exception e)
         {
@@ -130,14 +134,79 @@ public static class SpectateView
         }
     }
 
-    private static void ApplyHand(Player? target)
+    /// <summary>The player whose hand a peek box is showing right now, or null when no box is.</summary>
+    public static Player? PeekPlayer { get; private set; }
+
+    /// <summary>
+    /// Whose hand is on screen. A peek wins over spectating, and either way it is the hand alone: the piles, energy
+    /// and the rest of the combat UI keep following <see cref="SpectateController.Target" />. Null means our own.
+    /// </summary>
+    public static Player? HandPlayer
+    {
+        get
+        {
+            Player? player = PeekPlayer ?? (SpectateConfig.ReplaceHand ? SpectateController.Target : null);
+            return player == null || player == _localPlayer ? null : player;
+        }
+    }
+
+    /// <summary>
+    /// Whose card play the overlay mirrors: the arrow, the reticle and the held card. Follows the peek too, so a
+    /// quick look shows what that player is doing with their cards and not only what they hold.
+    /// </summary>
+    public static Player? VisualPlayer
+    {
+        get
+        {
+            Player? player = PeekPlayer ?? SpectateController.Target;
+            return player == _localPlayer ? null : player;
+        }
+    }
+
+    /// <summary>
+    /// Can a peek box show this player's hand right now? Our own box only means something while another hand is
+    /// covering ours. Never in the middle of playing or choosing a card: that needs our real hand on screen.
+    /// </summary>
+    public static bool CanPeek(Player player)
+    {
+        if (_ui == null || _hand == null || _ui.Hand.InCardPlay || _ui.Hand.IsInCardSelection)
+        {
+            return false;
+        }
+        if (player == _localPlayer)
+        {
+            return SpectateConfig.ReplaceHand && SpectateController.IsSpectating;
+        }
+        return SpectateController.CanSpectate(player);
+    }
+
+    public static void SetPeek(Player? player)
+    {
+        if (player == PeekPlayer || _ui == null)
+        {
+            return;
+        }
+        PeekPlayer = player;
+        try
+        {
+            ApplyHand();
+        }
+        catch (Exception e)
+        {
+            MainFile.Logger.Error($"Failed to peek at a hand: {e}");
+            PeekPlayer = null;
+        }
+    }
+
+    private static void ApplyHand()
     {
         if (_ui == null || _hand == null)
         {
             return;
         }
 
-        bool replace = target != null && SpectateConfig.ReplaceHand;
+        Player? shown = HandPlayer;
+        bool replace = shown != null;
         // Hiding only the holder container leaves the hand node itself alone, so the game's own hand bookkeeping
         // keeps running untouched while we are away.
         _ui.Hand.CardHolderContainer.Visible = !replace;
@@ -145,7 +214,8 @@ public static class SpectateView
 
         if (replace)
         {
-            _hand.Bind(target!);
+            _hand.Bind(shown!);
+            OnHoverChanged(shown!.NetId);
         }
         else
         {
@@ -341,8 +411,8 @@ public static class SpectateView
 
     private static void OnHoverChanged(ulong playerId)
     {
-        Player? target = SpectateController.Target;
-        if (_hand == null || target == null || target.NetId != playerId)
+        Player? shown = HandPlayer;
+        if (_hand == null || shown == null || shown.NetId != playerId)
         {
             return;
         }

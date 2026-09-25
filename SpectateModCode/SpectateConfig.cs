@@ -41,6 +41,16 @@ public class SpectateConfig : SimpleModConfig
     [ConfigSlider(0.0, 3.0)]
     public static int PreferredTeammateSlot { get; set; }
 
+    /// <summary>
+    /// Small player boxes under the end turn button: rest the mouse on one to see that player's hand for as long as
+    /// it stays there, without spectating them.
+    /// </summary>
+    public static bool ShowHandPeekBar { get; set; } = true;
+
+    /// <summary>Seconds the mouse has to rest on a peek box before the hand switches. 0 switches on contact.</summary>
+    [ConfigSlider(0.0, 1.0, 0.05, Format = "{0:0.00}s")]
+    public static double PeekHoverDelay { get; set; } = 0.1;
+
     [ConfigSection("What gets replaced")]
     public static bool ReplaceHand { get; set; } = true;
 

@@ -20,6 +20,12 @@
   "SPECTATEMOD-PREFERRED_TEAMMATE_SLOT.title": "Preferred teammate slot",
   "SPECTATEMOD-PREFERRED_TEAMMATE_SLOT.description": "Teammate to prefer for auto spectate. 0 picks the first eligible teammate. If the preferred teammate is dead or has ended their turn, another eligible teammate is used.",
 
+  "SPECTATEMOD-SHOW_HAND_PEEK_BAR.title": "Peek boxes under End Turn",
+  "SPECTATEMOD-SHOW_HAND_PEEK_BAR.description": "Show a small box per player under the End Turn button. Rest the mouse on one for a moment to see that player's hand, and what they do with it, until you move away.",
+
+  "SPECTATEMOD-PEEK_HOVER_DELAY.title": "Peek hover delay",
+  "SPECTATEMOD-PEEK_HOVER_DELAY.description": "How long, in seconds, the mouse has to rest on a peek box before its hand is shown. 0 shows it immediately.",
+
   "SPECTATEMOD-REPLACE_HAND.title": "Replace your hand",
   "SPECTATEMOD-REPLACE_HAND.description": "Show the spectated teammate's hand in place of your own.",
 

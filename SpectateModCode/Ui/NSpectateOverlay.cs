@@ -117,7 +117,9 @@ public partial class NSpectateOverlay : Control
     public override void _Process(double delta)
     {
         base._Process(delta);
-        Player? target = SpectateController.Target;
+        // Whoever's hand is being mirrored, peeked or spectated. The overlay itself is hidden during a bare peek, but
+        // the arrow lives under the target manager, not under us, so it still shows.
+        Player? target = SpectateView.VisualPlayer;
         PeerInputSynchronizer? sync = RunManager.Instance.InputSynchronizer;
         if (target == null || !SpectateConfig.ShowCardPlayVisuals || sync == null)
         {
