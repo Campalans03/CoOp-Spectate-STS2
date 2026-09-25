@@ -22,7 +22,7 @@ public partial class NSpectateInput : Node
     public override void _Input(InputEvent inputEvent)
     {
         base._Input(inputEvent);
-        if (!SpectateConfig.Instance.ManualSpectateOnClick)
+        if (!SpectateConfig.ManualSpectateOnClick)
         {
             return;
         }

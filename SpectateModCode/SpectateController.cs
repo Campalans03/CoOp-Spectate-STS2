@@ -151,7 +151,7 @@ public static class SpectateController
     public static Player? PickAutoTarget()
     {
         IReadOnlyList<Player> teammates = Teammates();
-        int preferred = SpectateConfig.Instance.PreferredTeammateSlot;
+        int preferred = SpectateConfig.PreferredTeammateSlot;
         if (preferred > 0 && preferred <= teammates.Count)
         {
             Player candidate = teammates[preferred - 1];
@@ -179,7 +179,7 @@ public static class SpectateController
     {
         if (LocalContext.IsMe(player))
         {
-            if (SpectateConfig.Instance.AutoSpectateAfterEndTurn && !IsSpectating)
+            if (SpectateConfig.AutoSpectateAfterEndTurn && !IsSpectating)
             {
                 Player? target = PickAutoTarget();
                 if (target != null)
@@ -230,7 +230,7 @@ public static class SpectateController
     /// </summary>
     private static void RepickOrStop()
     {
-        if (!IsAutoPicked || !SpectateConfig.Instance.AutoSpectateAfterEndTurn)
+        if (!IsAutoPicked || !SpectateConfig.AutoSpectateAfterEndTurn)
         {
             Stop();
             return;

@@ -102,8 +102,8 @@ public partial class NSpectateOverlay : Control
     public void Refresh(Player? target)
     {
         bool spectating = target != null;
-        bool showLabel = spectating && SpectateConfig.Instance.ShowSpectatingLabel;
-        bool showBorder = spectating && SpectateConfig.Instance.ShowSpectatingBorder;
+        bool showLabel = spectating && SpectateConfig.ShowSpectatingLabel;
+        bool showBorder = spectating && SpectateConfig.ShowSpectatingBorder;
 
         _label.Visible = showLabel;
         if (showLabel)
@@ -125,7 +125,7 @@ public partial class NSpectateOverlay : Control
     {
         base._Process(delta);
         Player? target = SpectateController.Target;
-        if (target == null || !SpectateConfig.Instance.ShowCardPlayVisuals)
+        if (target == null || !SpectateConfig.ShowCardPlayVisuals)
         {
             ClearTargeting();
             return;

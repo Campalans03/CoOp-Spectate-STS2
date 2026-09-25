@@ -129,7 +129,7 @@ public static class SpectateView
             return;
         }
 
-        bool replace = target != null && SpectateConfig.Instance.ReplaceHand;
+        bool replace = target != null && SpectateConfig.ReplaceHand;
         // Hiding only the holder container leaves the hand node itself alone, so the game's own hand bookkeeping
         // keeps running untouched while we are away.
         _ui.Hand.CardHolderContainer.Visible = !replace;
@@ -155,7 +155,7 @@ public static class SpectateView
             return;
         }
 
-        if (target != null && SpectateConfig.Instance.ReplaceCombatUi)
+        if (target != null && SpectateConfig.ReplaceCombatUi)
         {
             BindCombatUi(target);
             _uiSwapped = true;
@@ -291,7 +291,7 @@ public static class SpectateView
         {
             return;
         }
-        if (!SpectateConfig.Instance.MirrorHover)
+        if (!SpectateConfig.MirrorHover)
         {
             _hand.SetHovered(null);
             return;
