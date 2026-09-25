@@ -49,6 +49,13 @@ public partial class NSpectateHand : Control
     /// <summary>Scale NCardPlay.CenterCard puts a card at once it is being aimed.</summary>
     private const float targetingScale = 0.75f;
 
+    /// <summary>
+    /// Smoothing for the card a teammate is holding. The same rate NHandCardHolder.AnimPosition uses, which matters
+    /// more here than it does for them: peer input is only sent every 50ms at best, so the cursor we are given
+    /// arrives in steps rather than as a continuous line.
+    /// </summary>
+    private const float playLerpSpeed = 7f;
+
     /// <summary>What the teammate is doing with the card they picked up.</summary>
     public enum PlayVisual
     {
@@ -64,6 +71,8 @@ public partial class NSpectateHand : Control
     private CardModel? _playCard;
     private PlayVisual _playVisual;
     private Vector2 _playCursor;
+    private Vector2 _playTargetPosition;
+    private Vector2 _playTargetScale = Vector2.One;
 
     private readonly Dictionary<CardModel, Control> _slots = new();
     private readonly Dictionary<CardModel, NCard> _cards = new();
@@ -194,6 +203,7 @@ public partial class NSpectateHand : Control
         // The real container is reached through a unique-name lookup and may sit at any depth, so follow it in global
         // space instead of assuming we share a parent. Doing it per frame also survives resolution changes.
         FollowRealHand();
+        ProcessPlayVisual(delta);
     }
 
     public override void _ExitTree()
@@ -402,20 +412,38 @@ public partial class NSpectateHand : Control
         }
     }
 
+    /// <summary>
+    /// Records where the held card is heading. Nothing is moved here: <see cref="ProcessPlayVisual" /> eases it there
+    /// a frame at a time, which both smooths the stepped peer cursor and gives the card the same pick-up glide the
+    /// game gives its own.
+    /// </summary>
     private void ApplyPlayVisual(Control slot)
     {
         if (_playVisual == PlayVisual.Targeting)
         {
-            // NCardPlay.CenterCard: centred horizontally, sitting three quarters of a scaled card up from the bottom.
+            // NCardPlay.CenterCard: centred horizontally, sitting half a scaled card up from the bottom.
             Vector2 viewport = GetViewportRect().Size;
-            slot.Scale = Vector2.One * targetingScale;
-            slot.GlobalPosition = new Vector2(
+            _playTargetScale = Vector2.One * targetingScale;
+            _playTargetPosition = new Vector2(
                 viewport.X * 0.5f,
                 viewport.Y - NCard.defaultSize.Y * targetingScale * 0.5f);
             return;
         }
-        slot.Scale = Vector2.One;
-        slot.GlobalPosition = _playCursor;
+        _playTargetScale = Vector2.One;
+        _playTargetPosition = _playCursor;
+    }
+
+    private void ProcessPlayVisual(double delta)
+    {
+        if (_playCard == null
+            || !_slots.TryGetValue(_playCard, out Control? slot)
+            || !GodotObject.IsInstanceValid(slot))
+        {
+            return;
+        }
+        float weight = Mathf.Min(1f, (float)delta * playLerpSpeed);
+        slot.GlobalPosition = slot.GlobalPosition.Lerp(_playTargetPosition, weight);
+        slot.Scale = slot.Scale.Lerp(_playTargetScale, weight);
     }
 
     private void ClearCards()
