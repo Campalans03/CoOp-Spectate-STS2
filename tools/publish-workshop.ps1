@@ -136,26 +136,36 @@ function Format-VdfValue([string] $value) {
 }
 
 $description = @"
-Watch your co-op teammates play their turn instead of staring at your own board.
+Co-op Spectate lets you watch your teammates' turns as if you were sitting next to them: their hand, their piles, their energy, and every card they pick up and aim, live.
 
-[h2]Spectating[/h2]
+[h2]What you see[/h2]
 [list]
-[*]Finish your turn, or click a teammate, to see their hand, draw/discard/exhaust piles, energy, stars, relics and potions.
-[*]See the card they are hovering, the card they pick up and the arrow they aim with, as they do it.
-[*]Rest your mouse on their cards to read them at your own pace.
-[*]Quick-peek boxes on the right edge of the screen: hover one to glance at that player's hand without switching.
-[*]Automatically follows someone still playing when you die or end your turn.
+[*][b]Their hand[/b], in place of yours, with the card they're hovering raised just like on their screen.
+[*][b]Every play as it happens[/b]: the card they pick up, the targeting arrow and the reticle on the enemy they aim at, with damage recalculated against that target.
+[*][b]Their whole combat UI[/b]: draw, discard and exhaust piles, energy, stars, relics and potions.
+[*][b]Your own energy[/b] stays visible as a small orb beside theirs, so you know what you'll have left.
+[/list]
+
+[h2]How to spectate[/h2]
+[list]
+[*][b]End your turn[/b] and you automatically follow a teammate who is still playing.
+[*][b]Click a teammate[/b] (or the eye next to their icon in the party list) to watch them any time. Click yourself to come back.
+[*][b]Peek boxes[/b] on the right edge of the screen: rest your mouse on one to glance at that player's hand without switching.
+[*][b]Died?[/b] You keep watching whoever is still alive instead of staring at your corpse.
+[*]Hover their cards with your own mouse to read them at your own pace.
 [/list]
 
 [h2]Draw on their screen[/h2]
-While spectating, hold the right mouse button and drag to draw on your teammate's screen, just like on the map. Each player draws in their own colour and the lines wipe themselves away after a moment.
+While spectating, [b]hold right click and drag[/b] to draw on your teammate's screen, just like on the map. Point at the enemy to hit, the card to play, or the End Turn button.
 
-[h2]Notes[/h2]
+Every player draws in their own colour, and the lines fade away on their own a moment later.
+
+[h2]Good to know[/h2]
 [list]
-[*]Everything you see is read-only: you can never play a teammate's cards or use their potions.
-[*]Requires BaseLib.
-[*]Spectating works on your own. To see what someone draws, they need the mod too.
-[*]Every option can be turned off in the mod settings.
+[*][b]Look, don't touch[/b]: nothing you see can be played or used. Your teammate stays in full control of their turn.
+[*][b]Doesn't affect gameplay[/b]: you can join lobbies with players who don't have it. Spectating works on your own; drawing is only seen by teammates who also have the mod.
+[*][b]Fully configurable[/b]: every feature can be turned on or off in the mod settings.
+[*]Requires [url=https://steamcommunity.com/sharedfiles/filedetails/?id=3737335127]BaseLib[/url].
 [/list]
 "@
 
