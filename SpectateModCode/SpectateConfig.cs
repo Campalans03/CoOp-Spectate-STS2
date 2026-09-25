@@ -51,6 +51,12 @@ public class SpectateConfig : SimpleModConfig
     [ConfigSlider(0.0, 1.0, 0.05, Format = "{0:0.00}s")]
     public static double PeekHoverDelay { get; set; } = 0.1;
 
+    /// <summary>
+    /// While spectating, hold the right mouse button and drag to draw on the teammate's screen.
+    /// The line wipes itself away a moment later.
+    /// </summary>
+    public static bool DrawOnClick { get; set; } = true;
+
     [ConfigSection("What gets replaced")]
     public static bool ReplaceHand { get; set; } = true;
 

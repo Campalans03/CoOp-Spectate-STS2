@@ -34,6 +34,7 @@ public static class SpectateView
     private static NSpectateOverlay? _overlay;
     private static NSpectateInput? _input;
     private static NSpectatePeekBar? _peekBar;
+    private static NSpectateDrawLayer? _drawings;
     private static NSpectatePotionBelt? _potionBelt;
 
     private static Player? _localPlayer;
@@ -65,7 +66,12 @@ public static class SpectateView
         _overlay.MoveToFrontSafely();
         _overlay.Refresh(null);
 
-        _input = NSpectateInput.Create();
+        // Built even when we are not spectating: somebody may be watching us, and what they draw lands on our screen.
+        _drawings = NSpectateDrawLayer.Create();
+        ui.AddChildSafely(_drawings);
+        _drawings.MoveToFrontSafely();
+
+        _input = NSpectateInput.Create(_drawings);
         ui.AddChildSafely(_input);
 
         // Added after the overlay so it sits above it; the overlay ignores the mouse, but this has to receive it.
@@ -102,7 +108,9 @@ public static class SpectateView
         _overlay?.QueueFreeSafely();
         _input?.QueueFreeSafely();
         _peekBar?.QueueFreeSafely();
+        _drawings?.QueueFreeSafely();
         _hand = null;
+        _drawings = null;
         _overlay = null;
         _input = null;
         _peekBar = null;
