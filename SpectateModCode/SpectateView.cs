@@ -1,7 +1,10 @@
 using System;
+using System.Collections.Generic;
+using System.Reflection;
 using Godot;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Combat;
+using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Models;
@@ -91,6 +94,11 @@ public static class SpectateView
 
         // A teammate picked by hand stays picked after combat, so nothing else is going to hand our board back.
         RestoreCombatUi();
+        // Normally the restore above has already let go of these; a failed restore must not leave them listening.
+        foreach (NCombatCardPile button in new List<NCombatCardPile>(remoteCounters.Keys))
+        {
+            StopCountingRemote(button);
+        }
         if (GodotObject.IsInstanceValid(_ui.Hand))
         {
             _ui.Hand.CardHolderContainer.Visible = true;
@@ -245,6 +253,7 @@ public static class SpectateView
     /// </summary>
     private static void RebindPile(NCombatCardPile pile, Player player)
     {
+        StopCountingRemote(pile);
         if (pile._pile != null)
         {
             pile._pile.CardAddFinished -= AddCardHandler(pile);
@@ -252,12 +261,56 @@ public static class SpectateView
             pile._pile = null;
         }
         pile.Initialize(player);
+        if (player != _localPlayer && pile._pile != null)
+        {
+            Action handler = () => SyncRemoteCount(pile);
+            pile._pile.ContentsChanged += handler;
+            remoteCounters[pile] = (pile._pile, handler);
+        }
     }
+
+    private static readonly MethodInfo addCardMethod = AccessTools.Method(typeof(NCombatCardPile), "AddCard");
 
     private static Action AddCardHandler(NCombatCardPile pile)
     {
-        return (Action)Delegate.CreateDelegate(
-            typeof(Action), pile, AccessTools.Method(typeof(NCombatCardPile), "AddCard"));
+        return (Action)Delegate.CreateDelegate(typeof(Action), pile, addCardMethod);
+    }
+
+    /// <summary>Pile buttons pointed at a teammate, and the handler that keeps each one's count honest.</summary>
+    private static readonly Dictionary<NCombatCardPile, (CardPile pile, Action handler)> remoteCounters = new();
+
+    /// <summary>
+    /// A pile button only counts a card in once CardAddFinished says its fly-in animation landed, and the game never
+    /// animates a teammate's cards into their piles: it fades them out and frees them without raising the event. So a
+    /// button showing a teammate's discard pile would miss every card they discard, and only catch up the next time a
+    /// card left the pile, which with a discard-heavy turn is almost never. Follow the pile's contents instead, bumping
+    /// the button the way a landed card does.
+    /// </summary>
+    private static void SyncRemoteCount(NCombatCardPile button)
+    {
+        CardPile? pile = button._pile;
+        if (pile == null || !GodotObject.IsInstanceValid(button))
+        {
+            return;
+        }
+        int count = pile.Cards.Count;
+        if (count > button._currentCount)
+        {
+            AddCardHandler(button)();
+        }
+        if (button._currentCount != count)
+        {
+            button._currentCount = count;
+            button._countLabel.SetTextAutoSize(count.ToString());
+        }
+    }
+
+    private static void StopCountingRemote(NCombatCardPile button)
+    {
+        if (remoteCounters.Remove(button, out (CardPile pile, Action handler) entry))
+        {
+            entry.pile.ContentsChanged -= entry.handler;
+        }
     }
 
     /// <summary>

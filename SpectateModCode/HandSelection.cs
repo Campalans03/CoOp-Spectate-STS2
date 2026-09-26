@@ -68,15 +68,23 @@ public static class HandSelection
         Raise(player.NetId);
     }
 
-    /// <summary>The choice was made (or cancelled): back to a plain hand.</summary>
-    public static void End(Player player)
+    /// <summary>
+    /// <paramref name="choice" /> was made (or cancelled): back to a plain hand. Only that choice ends; a player who
+    /// discards card after card can be into their next one by the time the last one's end reaches us.
+    /// <para>
+    /// Marked cards are left alone. Their client clears them itself with an empty list once it is done, and when ours
+    /// is behind theirs, what is already here belongs to their next choice: wiping it here lost those marks until they
+    /// changed them again.
+    /// </para>
+    /// </summary>
+    public static void End(Player player, Choice choice)
     {
-        bool had = choices.Remove(player.NetId);
-        had |= marked.Remove(player.NetId);
-        if (had)
+        if (choices.GetValueOrDefault(player.NetId) != choice)
         {
-            Raise(player.NetId);
+            return;
         }
+        choices.Remove(player.NetId);
+        Raise(player.NetId);
     }
 
     /// <summary>

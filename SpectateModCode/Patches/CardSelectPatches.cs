@@ -49,12 +49,13 @@ public static class CardSelectPatches
             {
                 return;
             }
-            HandSelection.Begin(player, new HandSelection.Choice
+            HandSelection.Choice choice = new()
             {
                 Prompt = prompt.GetFormattedText(),
                 Filter = filter
-            });
-            TaskWatch.WhenDone(task, () => HandSelection.End(player));
+            };
+            HandSelection.Begin(player, choice);
+            TaskWatch.WhenDone(task, () => HandSelection.End(player, choice));
         }
         catch (Exception e)
         {
