@@ -43,9 +43,9 @@ public static class CombatUiPatches
     }
 
     /// <summary>
-    /// Detach before uninstall, not the other way round. Detaching stops any active spectate, and it is that stop
-    /// which drives the view back to the local player (unhiding our hand, rebinding the piles and counters).
-    /// Uninstalling first would drop the listener and leave the combat UI pointing at the teammate.
+    /// Detach before uninstall: detaching ends an auto-picked spectate while the view is still listening, so the
+    /// relics and potions follow. A teammate picked by hand stays picked, so the uninstall puts our own hand and
+    /// combat UI back by itself either way.
     /// </summary>
     private static void Teardown()
     {

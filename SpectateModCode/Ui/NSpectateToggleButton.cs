@@ -1,13 +1,10 @@
 using System;
 using Godot;
-using MegaCrit.Sts2.Core.Combat;
 using MegaCrit.Sts2.Core.Context;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Nodes.GodotExtensions;
 using MegaCrit.Sts2.Core.Nodes.Multiplayer;
-using MegaCrit.Sts2.Core.Nodes.Rooms;
-using MegaCrit.Sts2.Core.Rooms;
 
 namespace SpectateMod.SpectateModCode.Ui;
 
@@ -129,8 +126,8 @@ public partial class NSpectateToggleButton : Control
     {
         base._Process(delta);
         Reposition();
-        // Availability follows combat, which has no single event we can hang this off, so re-evaluate each frame.
-        // Refresh only redraws when the look actually changes.
+        // Availability follows combat and card play, which have no single event we can hang this off, so re-evaluate
+        // each frame. Refresh only redraws when the look actually changes.
         Refresh();
     }
 
@@ -197,7 +194,7 @@ public partial class NSpectateToggleButton : Control
 
     private Look ResolveLook()
     {
-        if (!SpectateConfig.ShowSpectateButtons || !InActiveCombat())
+        if (!SpectateConfig.ShowSpectateButtons || !SpectateController.IsActive || !SpectateView.CanSwitchView)
         {
             return Look.Unavailable;
         }
@@ -213,13 +210,6 @@ public partial class NSpectateToggleButton : Control
             return Look.Watching;
         }
         return SpectateController.CanSpectate(_player) ? Look.Idle : Look.Unavailable;
-    }
-
-    private static bool InActiveCombat()
-    {
-        return SpectateController.State != null
-               && CombatManager.Instance.IsInProgress
-               && NCombatRoom.Instance is { Mode: CombatRoomMode.ActiveCombat };
     }
 
     private void OnReleased(NClickableControl _)

@@ -1,3 +1,4 @@
+using System;
 using Godot;
 using MegaCrit.Sts2.Core.Context;
 using MegaCrit.Sts2.Core.Entities.Players;
@@ -5,15 +6,19 @@ using MegaCrit.Sts2.Core.Entities.Players;
 namespace SpectateMod.SpectateModCode.Ui;
 
 /// <summary>
-/// One player's box in the <see cref="NSpectatePeekBar" />. Resting the mouse on it for <see cref="HoldSeconds" />
-/// swaps just the hand to that player's; leaving it swaps straight back. A bar along the bottom fills while it
-/// charges, so the delay reads as intended rather than as lag.
+/// One player's box in the <see cref="NSpectatePeekBar" />.
+/// <list type="bullet">
+/// <item>A click spectates that player until clicked again (or until our own box is clicked).</item>
+/// <item>Resting the mouse on it for <see cref="HoldSeconds" /> shows that player only while the mouse stays there; a
+/// bar along the bottom fills while it charges, so the delay reads as intended rather than as lag.</item>
+/// </list>
+/// Our own box is the way back: click it to stop spectating, or rest on it for a quick look at our own screen.
 /// </summary>
 public partial class NSpectatePeekSlot : Control
 {
     public const float SlotSize = 52f;
 
-    /// <summary>How long the mouse has to stay on a box before the hand switches, from the settings slider.</summary>
+    /// <summary>How long the mouse has to stay on a box before the view switches, from the settings slider.</summary>
     private static float HoldSeconds => Mathf.Clamp((float)SpectateConfig.PeekHoverDelay, 0f, 1f);
 
     private const float iconInset = 5f;
@@ -22,7 +27,7 @@ public partial class NSpectatePeekSlot : Control
     private static readonly Color backgroundColor = new(0.08f, 0.07f, 0.07f, 0.85f);
     private static readonly Color borderColor = new(0.78f, 0.74f, 0.68f, 0.55f);
     private static readonly Color hoverBorderColor = new(1f, 0.92f, 0.86f, 0.95f);
-    private static readonly Color peekingBorderColor = new(0.90f, 0.25f, 0.25f);
+    private static readonly Color watchingBorderColor = new(0.90f, 0.25f, 0.25f);
     private static readonly Color chargeColor = new(1f, 0.92f, 0.86f, 0.9f);
     private static readonly Color unavailableTint = new(0.45f, 0.45f, 0.45f, 0.7f);
 
@@ -31,6 +36,12 @@ public partial class NSpectatePeekSlot : Control
     private bool _hovered;
     private float _charge;
     private bool _available = true;
+
+    /// <summary>
+    /// Set by a click and held until the mouse leaves: the click already decided what is on screen, so the hover must
+    /// not charge up again and cover it.
+    /// </summary>
+    private bool _clicked;
 
     public Player Player => _player;
 
@@ -51,11 +62,26 @@ public partial class NSpectatePeekSlot : Control
         return node;
     }
 
+    private bool IsMe => LocalContext.IsMe(_player);
+
+    /// <summary>
+    /// Our own box only means something while we are watching somebody else. Never in the middle of playing or
+    /// choosing a card: that needs our real hand on screen.
+    /// </summary>
+    private bool IsAvailable()
+    {
+        if (!SpectateView.CanSwitchView)
+        {
+            return false;
+        }
+        return IsMe ? SpectateController.IsSpectating : SpectateController.CanSpectate(_player);
+    }
+
     public override void _Process(double delta)
     {
         base._Process(delta);
 
-        bool available = SpectateView.CanPeek(_player);
+        bool available = IsAvailable();
         if (available != _available)
         {
             _available = available;
@@ -64,10 +90,11 @@ public partial class NSpectatePeekSlot : Control
             {
                 Release();
             }
-            QueueRedraw();
         }
+        // Cheap, and the look depends on the target and the peek, which change from all over.
+        QueueRedraw();
 
-        if (!_hovered || !_available || SpectateView.PeekPlayer == _player)
+        if (!_hovered || !_available || _clicked || SpectateController.Peek == _player)
         {
             return;
         }
@@ -76,9 +103,42 @@ public partial class NSpectatePeekSlot : Control
         if (_charge >= hold)
         {
             _charge = hold;
-            SpectateView.SetPeek(_player);
+            SpectateController.SetPeek(_player);
         }
-        QueueRedraw();
+    }
+
+    public override void _GuiInput(InputEvent inputEvent)
+    {
+        base._GuiInput(inputEvent);
+        if (inputEvent is not InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: true })
+        {
+            return;
+        }
+        AcceptEvent();
+        if (!_available)
+        {
+            return;
+        }
+
+        try
+        {
+            _clicked = true;
+            _charge = 0f;
+            // The click replaces the look: whatever it leaves on screen is what stays.
+            SpectateController.SetPeek(null);
+            if (IsMe)
+            {
+                SpectateController.Stop();
+            }
+            else
+            {
+                SpectateController.Toggle(_player);
+            }
+        }
+        catch (Exception e)
+        {
+            MainFile.Logger.Error($"Peek box click failed: {e}");
+        }
     }
 
     public override void _ExitTree()
@@ -90,7 +150,8 @@ public partial class NSpectatePeekSlot : Control
     public override void _Draw()
     {
         Rect2 box = new(Vector2.Zero, Size);
-        bool peeking = SpectateView.PeekPlayer == _player;
+        bool watching = !IsMe && SpectateController.Target == _player;
+        bool peeking = SpectateController.Peek == _player;
 
         DrawRect(box, backgroundColor);
         if (_icon != null)
@@ -105,10 +166,13 @@ public partial class NSpectatePeekSlot : Control
             DrawRect(new Rect2(0f, Size.Y - chargeBarHeight, width, chargeBarHeight), chargeColor);
         }
 
-        Color border = peeking ? peekingBorderColor : _hovered && _available ? hoverBorderColor : borderColor;
-        DrawRect(box, border, filled: false, width: peeking ? 3f : 2f);
+        // Red marks who we are watching; a bright thick outline, who we are only looking at for the moment.
+        Color border = watching ? watchingBorderColor
+            : peeking || (_hovered && _available) ? hoverBorderColor
+            : borderColor;
+        DrawRect(box, border, filled: false, width: watching || peeking ? 3f : 2f);
 
-        if (LocalContext.IsMe(_player))
+        if (IsMe)
         {
             // A small notch in the corner marks our own box, since the icons alone don't say who is who.
             DrawRect(new Rect2(Size.X - 12f, 2f, 10f, 4f), hoverBorderColor);
@@ -119,23 +183,23 @@ public partial class NSpectatePeekSlot : Control
     {
         _hovered = true;
         _charge = 0f;
-        QueueRedraw();
+        _clicked = false;
     }
 
     private void OnMouseExited()
     {
         _hovered = false;
+        _clicked = false;
         Release();
     }
 
-    /// <summary>Drops the charge and, if the hand is showing this player because of us, hands it back.</summary>
+    /// <summary>Drops the charge and, if the view is showing this player because of us, hands it back.</summary>
     private void Release()
     {
         _charge = 0f;
-        if (SpectateView.PeekPlayer == _player)
+        if (SpectateController.Peek == _player)
         {
-            SpectateView.SetPeek(null);
+            SpectateController.SetPeek(null);
         }
-        QueueRedraw();
     }
 }

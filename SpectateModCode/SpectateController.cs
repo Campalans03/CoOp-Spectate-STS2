@@ -14,36 +14,85 @@ namespace SpectateMod.SpectateModCode;
 /// <summary>
 /// Owns "who am I watching". Purely local: it never touches the action queue or the net services, so a spectating
 /// client stays a normal client and the teammate keeps full control of their own turn.
+/// <para>
+/// It lives for the whole run, so a teammate picked on the map or in the shop stays picked. Combat adds its own rules
+/// on top (auto-spectate, back to our own board when our turn starts) while a combat is attached.
+/// </para>
 /// </summary>
 public static class SpectateController
 {
-    private static CombatState? _state;
+    private static IRunState? _run;
+    private static CombatState? _combat;
     private static Creature? _localCreature;
     private static bool _subscribed;
+    private static Player? _viewed;
 
-    /// <summary>The teammate currently being watched, or null when we are looking at our own board.</summary>
+    /// <summary>The teammate picked to watch, or null when we are looking at our own screen.</summary>
     public static Player? Target { get; private set; }
 
+    /// <summary>
+    /// The player a peek box is showing while the mouse rests on it. Wins over <see cref="Target" /> for as long as it
+    /// lasts; our own player here means "show me my own screen for a moment".
+    /// </summary>
+    public static Player? Peek { get; private set; }
+
+    /// <summary>Whose screen is on show right now: the peek if there is one, else the target. Null means our own.</summary>
+    public static Player? Viewed => _viewed;
+
     public static bool IsSpectating => Target != null;
+
+    /// <summary>True while a multiplayer run is attached, which is the only time any of this means anything.</summary>
+    public static bool IsActive => _run != null;
 
     /// <summary>True when the current spectate was picked by the mod rather than by a click.</summary>
     public static bool IsAutoPicked { get; private set; }
 
-    public static CombatState? State => _state;
+    /// <summary>The combat in progress, or null outside combat.</summary>
+    public static CombatState? State => _combat;
+
+    public static IRunState? Run => _run;
 
     /// <summary>Raised after <see cref="Target"/> changes. The argument is the new target (null when stopping).</summary>
     public static event Action<Player?>? TargetChanged;
 
+    /// <summary>Raised after <see cref="Viewed"/> changes, whether through the target or a peek.</summary>
+    public static event Action<Player?>? ViewChanged;
+
+    public static void AttachToRun(IRunState run)
+    {
+        DetachFromRun();
+        if (run.Players.Count <= 1)
+        {
+            // Singleplayer (or a solo lobby): there is nobody to watch, so stay completely out of the way.
+            return;
+        }
+        _run = run;
+    }
+
+    public static void DetachFromRun()
+    {
+        DetachFromCombat();
+        Stop();
+        SetPeek(null);
+        _run = null;
+    }
+
     public static void AttachToCombat(CombatState state)
     {
         DetachFromCombat();
-        _state = state;
-        if (state.Players.Count <= 1)
+        if (_run == null && state.Players.Count > 1)
         {
-            // Singleplayer (or a solo lobby): there is nobody to watch, so stay completely out of the way.
-            _state = null;
+            // The run hook should have got here first; fall back rather than lose spectating for this combat.
+            AttachToRun(state.RunState);
+        }
+        if (_run == null)
+        {
             return;
         }
+        _combat = state;
+
+        // Every combat starts on our own board: our first turn is about to begin and it needs our hand.
+        Stop();
 
         CombatManager.Instance.PlayerEndedTurn += OnPlayerEndedTurn;
         CombatManager.Instance.PlayerUnendedTurn += OnPlayerUnendedTurn;
@@ -63,7 +112,6 @@ public static class SpectateController
 
     public static void DetachFromCombat()
     {
-        Stop();
         if (_subscribed)
         {
             CombatManager.Instance.PlayerEndedTurn -= OnPlayerEndedTurn;
@@ -78,43 +126,53 @@ public static class SpectateController
             _localCreature.Died -= OnLocalCreatureDied;
             _localCreature = null;
         }
-        _state = null;
+        _combat = null;
+        // The mod picked this one for the combat's sake; a teammate we clicked on stays picked.
+        if (IsAutoPicked)
+        {
+            Stop();
+        }
     }
 
     /// <summary>A dead player has no turn of their own to come back to, which relaxes what counts as a good target.</summary>
-    public static bool IsLocalPlayerDead => Me?.Creature is { IsDead: true };
+    public static bool IsLocalPlayerDead => _combat != null && Me?.Creature is { IsDead: true };
 
-    public static Player? Me => _state == null ? null : LocalContext.GetMe(_state);
+    public static Player? Me => _run == null ? null : LocalContext.GetMe(_run);
 
     /// <summary>Teammates in stable slot order, so the "preferred slot" option means the same thing every combat.</summary>
     public static IReadOnlyList<Player> Teammates()
     {
-        if (_state == null)
+        if (_run == null)
         {
             return Array.Empty<Player>();
         }
-        IPlayerCollection collection = _state.RunState;
-        return _state.Players
+        IPlayerCollection collection = _run;
+        return _run.Players
             .Where(p => !LocalContext.IsMe(p))
             .OrderBy(collection.GetPlayerSlotIndex)
             .ToList();
     }
 
-    /// <summary>Can this player be watched at all? (Alive, in combat, and not us.)</summary>
+    /// <summary>
+    /// Can this player be watched at all? Anyone else in the run, and in combat only while they are alive and still
+    /// taking part in it.
+    /// </summary>
     public static bool CanSpectate(Player? player)
     {
-        return player != null
-               && _state != null
-               && !LocalContext.IsMe(player)
-               && player.PlayerCombatState != null
-               && player.Creature is { IsAlive: true }
-               && _state.Players.Contains(player);
+        if (player == null || _run == null || LocalContext.IsMe(player) || !_run.Players.Contains(player))
+        {
+            return false;
+        }
+        return _combat == null
+               || (player.PlayerCombatState != null
+                   && player.Creature is { IsAlive: true }
+                   && _combat.Players.Contains(player));
     }
 
     /// <summary>Additionally requires that the teammate still has a turn to watch.</summary>
     public static bool IsAutoEligible(Player? player)
     {
-        return CanSpectate(player) && !CombatManager.Instance.IsPlayerReadyToEndTurn(player!);
+        return _combat != null && CanSpectate(player) && !CombatManager.Instance.IsPlayerReadyToEndTurn(player!);
     }
 
     public static string GetDisplayName(Player player)
@@ -144,8 +202,14 @@ public static class SpectateController
 
     public static void Start(Player player, bool autoPicked)
     {
-        if (!CanSpectate(player) || Target == player)
+        if (!CanSpectate(player))
         {
+            return;
+        }
+        if (Target == player)
+        {
+            // Clicking the teammate the mod had already picked makes it ours: it no longer ends with the combat.
+            IsAutoPicked &= autoPicked;
             return;
         }
         Target = player;
@@ -163,6 +227,17 @@ public static class SpectateController
         Target = null;
         IsAutoPicked = false;
         Raise();
+    }
+
+    /// <summary>Starts or ends a peek. Pass null when the mouse leaves the box.</summary>
+    public static void SetPeek(Player? player)
+    {
+        if (player == Peek)
+        {
+            return;
+        }
+        Peek = player;
+        RaiseViewIfChanged();
     }
 
     /// <summary>Picks the best teammate to auto-spectate, honouring the preferred-slot option.</summary>
@@ -199,6 +274,29 @@ public static class SpectateController
         {
             MainFile.Logger.Error($"Spectate listener threw: {e}");
         }
+        RaiseViewIfChanged();
+    }
+
+    private static void RaiseViewIfChanged()
+    {
+        Player? shown = Peek ?? Target;
+        if (shown != null && LocalContext.IsMe(shown))
+        {
+            shown = null;
+        }
+        if (shown == _viewed)
+        {
+            return;
+        }
+        _viewed = shown;
+        try
+        {
+            ViewChanged?.Invoke(shown);
+        }
+        catch (Exception e)
+        {
+            MainFile.Logger.Error($"Spectate view listener threw: {e}");
+        }
     }
 
     private static void OnPlayerEndedTurn(Player player, bool canBackOut)
@@ -234,7 +332,10 @@ public static class SpectateController
 
     private static void OnCombatEnded(CombatRoom room)
     {
-        Stop();
+        if (IsAutoPicked)
+        {
+            Stop();
+        }
     }
 
     private static void OnTurnStarted(CombatState state)

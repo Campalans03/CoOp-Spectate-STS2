@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using System.Linq;
 using Godot;
 using MegaCrit.Sts2.Core.Entities.Creatures;
@@ -14,20 +13,15 @@ using MegaCrit.Sts2.Core.Runs;
 namespace SpectateMod.SpectateModCode.Ui;
 
 /// <summary>
-/// Everything drawn on top of combat while spectating: the "Spectating" label, the red screen border, and the
-/// teammate's targeting arrow and selection reticle mirrored into our own view.
+/// The watched player's card play, mirrored into our own combat view: their targeting arrow and selection reticle,
+/// and the card they are holding. The "Spectating" label and the red border are <see cref="NSpectateRunUi" />'s, since
+/// they apply outside combat too.
 /// </summary>
 public partial class NSpectateOverlay : Control
 {
-    private const float borderThickness = 6f;
-
-    private static readonly Color borderColor = new(0.85f, 0.15f, 0.15f, 0.75f);
     /// <summary>Above the combat scene so the arrow is never buried behind a creature.</summary>
     private const int arrowZIndex = 50;
 
-    private readonly List<ColorRect> _border = new();
-
-    private Label _label = null!;
     private NTargetingArrow? _arrow;
     private NSpectateHand? _hand;
     private NCreature? _reticleCreature;
@@ -41,84 +35,14 @@ public partial class NSpectateOverlay : Control
         };
         node._hand = hand;
         node.SetAnchorsPreset(LayoutPreset.FullRect);
-        node.Build();
         return node;
-    }
-
-    /// <summary>Children are built up-front rather than in _Ready so the overlay is usable before it is in the tree.</summary>
-    private void Build()
-    {
-        _label = new Label
-        {
-            Name = "SpectateLabel",
-            MouseFilter = MouseFilterEnum.Ignore,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            Visible = false
-        };
-        _label.SetAnchorsPreset(LayoutPreset.TopWide);
-        _label.OffsetTop = 24f;
-        _label.OffsetBottom = 90f;
-        _label.AddThemeFontSizeOverride("font_size", 40);
-        _label.AddThemeColorOverride("font_color", new Color(1f, 0.92f, 0.86f));
-        _label.AddThemeColorOverride("font_outline_color", new Color(0f, 0f, 0f, 0.8f));
-        _label.AddThemeConstantOverride("outline_size", 8);
-        this.AddChildSafely(_label);
-
-        foreach (LayoutPreset preset in new[]
-                 {
-                     LayoutPreset.TopWide, LayoutPreset.BottomWide, LayoutPreset.LeftWide, LayoutPreset.RightWide
-                 })
-        {
-            ColorRect rect = new()
-            {
-                Color = borderColor,
-                MouseFilter = MouseFilterEnum.Ignore,
-                Visible = false
-            };
-            rect.SetAnchorsPreset(preset);
-            bool horizontal = preset is LayoutPreset.TopWide or LayoutPreset.BottomWide;
-            if (horizontal)
-            {
-                rect.OffsetTop = preset == LayoutPreset.TopWide ? 0f : -borderThickness;
-                rect.OffsetBottom = preset == LayoutPreset.TopWide ? borderThickness : 0f;
-            }
-            else
-            {
-                rect.OffsetLeft = preset == LayoutPreset.LeftWide ? 0f : -borderThickness;
-                rect.OffsetRight = preset == LayoutPreset.LeftWide ? borderThickness : 0f;
-            }
-            _border.Add(rect);
-            this.AddChildSafely(rect);
-        }
-    }
-
-    public void Refresh(Player? target)
-    {
-        bool spectating = target != null;
-        bool showLabel = spectating && SpectateConfig.ShowSpectatingLabel;
-        bool showBorder = spectating && SpectateConfig.ShowSpectatingBorder;
-
-        _label.Visible = showLabel;
-        if (showLabel)
-        {
-            _label.Text = $"Spectating {SpectateController.GetDisplayName(target!)}";
-        }
-        foreach (ColorRect rect in _border)
-        {
-            rect.Visible = showBorder;
-        }
-        if (!spectating)
-        {
-            ClearTargeting();
-        }
-        Visible = spectating;
     }
 
     public override void _Process(double delta)
     {
         base._Process(delta);
-        // Whoever's hand is being mirrored, peeked or spectated. The overlay itself is hidden during a bare peek, but
-        // the arrow lives under the target manager, not under us, so it still shows.
+        // Whoever is on show, peeked or spectated. The arrow lives under the target manager rather than under us, so it
+        // is ours to show and hide.
         Player? target = SpectateView.VisualPlayer;
         PeerInputSynchronizer? sync = RunManager.Instance.InputSynchronizer;
         if (target == null || !SpectateConfig.ShowCardPlayVisuals || sync == null)

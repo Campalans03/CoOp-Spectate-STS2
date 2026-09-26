@@ -12,9 +12,9 @@ using SpectateMod.SpectateModCode.Ui;
 namespace SpectateMod.SpectateModCode;
 
 /// <summary>
-/// Applies the spectate state to the combat view: swaps the hand, re-points the combat UI at the watched player and
-/// drives the overlay. Every swap is reversible, and the whole apply step is guarded so a failure downgrades the
-/// feature instead of breaking combat.
+/// Applies the spectate state to the combat view: swaps the hand and re-points the combat UI at the watched player.
+/// Every swap is reversible, and the whole apply step is guarded so a failure downgrades the feature instead of
+/// breaking combat. What outlives combat (relics, potions, the label, the peek boxes) is <see cref="NSpectateRunUi" />'s.
 /// </summary>
 public static class SpectateView
 {
@@ -33,9 +33,7 @@ public static class SpectateView
     private static NSpectateHand? _hand;
     private static NSpectateOverlay? _overlay;
     private static NSpectateInput? _input;
-    private static NSpectatePeekBar? _peekBar;
     private static NSpectateDrawLayer? _drawings;
-    private static NSpectatePotionBelt? _potionBelt;
 
     private static Player? _localPlayer;
     private static NEnergyCounter? _localEnergyCounter;
@@ -64,7 +62,6 @@ public static class SpectateView
         _overlay = NSpectateOverlay.Create(_hand);
         ui.AddChildSafely(_overlay);
         _overlay.MoveToFrontSafely();
-        _overlay.Refresh(null);
 
         // Built even when we are not spectating: somebody may be watching us, and what they draw lands on our screen.
         _drawings = NSpectateDrawLayer.Create();
@@ -74,12 +71,11 @@ public static class SpectateView
         _input = NSpectateInput.Create(_drawings);
         ui.AddChildSafely(_input);
 
-        // Added after the overlay so it sits above it; the overlay ignores the mouse, but this has to receive it.
-        _peekBar = NSpectatePeekBar.Create(ui, state);
-        ui.AddChildSafely(_peekBar);
-
-        SpectateController.TargetChanged += OnTargetChanged;
+        SpectateController.ViewChanged += OnViewChanged;
         RunManager.Instance.HoveredModelTracker.HoverChanged += OnHoverChanged;
+
+        // Somebody may already be on show (a peek held across the start of combat), so apply it straight away.
+        OnViewChanged(SpectateController.Viewed);
     }
 
     public static void Uninstall()
@@ -89,7 +85,7 @@ public static class SpectateView
             return;
         }
 
-        SpectateController.TargetChanged -= OnTargetChanged;
+        SpectateController.ViewChanged -= OnViewChanged;
         try
         {
             RunManager.Instance.HoveredModelTracker.HoverChanged -= OnHoverChanged;
@@ -99,29 +95,28 @@ public static class SpectateView
             // RunManager can already be torn down on some exit paths; then there is nothing to unsubscribe from.
         }
 
+        // A teammate picked by hand stays picked after combat, so nothing else is going to hand our board back.
         RestoreCombatUi();
-        // Both live in the run's top bar and outlive this combat, so they must never be left showing somebody else's.
-        ApplyRelics(null);
-        ApplyPotions(null);
+        if (GodotObject.IsInstanceValid(_ui.Hand))
+        {
+            _ui.Hand.CardHolderContainer.Visible = true;
+        }
 
         _hand?.QueueFreeSafely();
         _overlay?.QueueFreeSafely();
         _input?.QueueFreeSafely();
-        _peekBar?.QueueFreeSafely();
         _drawings?.QueueFreeSafely();
         _hand = null;
         _drawings = null;
         _overlay = null;
         _input = null;
-        _peekBar = null;
-        PeekPlayer = null;
         _ui = null;
         _localPlayer = null;
         _localEnergyCounter = null;
         _uiSwapped = false;
     }
 
-    private static void OnTargetChanged(Player? target)
+    private static void OnViewChanged(Player? viewed)
     {
         if (_ui == null)
         {
@@ -131,16 +126,14 @@ public static class SpectateView
         try
         {
             ApplyHand();
-            ApplyCombatUi(target);
-            ApplyRelics(target);
-            ApplyPotions(target);
-            _overlay?.Refresh(target);
+            ApplyCombatUi(viewed);
         }
         catch (Exception e)
         {
             MainFile.Logger.Error($"Failed to apply spectate view: {e}");
             try
             {
+                SpectateController.SetPeek(null);
                 SpectateController.Stop();
             }
             catch (Exception)
@@ -150,69 +143,29 @@ public static class SpectateView
         }
     }
 
-    /// <summary>The player whose hand a peek box is showing right now, or null when no box is.</summary>
-    public static Player? PeekPlayer { get; private set; }
-
     /// <summary>
-    /// Whose hand is on screen. A peek wins over spectating, and either way it is the hand alone: the piles, energy
-    /// and the rest of the combat UI keep following <see cref="SpectateController.Target" />. Null means our own.
+    /// Whose hand is on screen. A peek always shows the hand, since that is what it is there for; spectating only
+    /// does with <see cref="SpectateConfig.ReplaceHand" /> on. Null means our own.
     /// </summary>
     public static Player? HandPlayer
     {
         get
         {
-            Player? player = PeekPlayer ?? (SpectateConfig.ReplaceHand ? SpectateController.Target : null);
+            Player? player = SpectateController.Peek
+                             ?? (SpectateConfig.ReplaceHand ? SpectateController.Target : null);
             return player == null || player == _localPlayer ? null : player;
         }
     }
 
-    /// <summary>
-    /// Whose card play the overlay mirrors: the arrow, the reticle and the held card. Follows the peek too, so a
-    /// quick look shows what that player is doing with their cards and not only what they hold.
-    /// </summary>
-    public static Player? VisualPlayer
-    {
-        get
-        {
-            Player? player = PeekPlayer ?? SpectateController.Target;
-            return player == _localPlayer ? null : player;
-        }
-    }
+    /// <summary>Whose card play the overlay mirrors: the arrow, the reticle and the held card.</summary>
+    public static Player? VisualPlayer => SpectateController.Viewed;
 
     /// <summary>
-    /// Can a peek box show this player's hand right now? Our own box only means something while another hand is
-    /// covering ours. Never in the middle of playing or choosing a card: that needs our real hand on screen.
+    /// False in the middle of playing or choosing a card: that needs our real hand and board on screen, so nothing may
+    /// switch the view away until it is done. Always true outside combat.
     /// </summary>
-    public static bool CanPeek(Player player)
-    {
-        if (_ui == null || _hand == null || _ui.Hand.InCardPlay || _ui.Hand.IsInCardSelection)
-        {
-            return false;
-        }
-        if (player == _localPlayer)
-        {
-            return SpectateConfig.ReplaceHand && SpectateController.IsSpectating;
-        }
-        return SpectateController.CanSpectate(player);
-    }
-
-    public static void SetPeek(Player? player)
-    {
-        if (player == PeekPlayer || _ui == null)
-        {
-            return;
-        }
-        PeekPlayer = player;
-        try
-        {
-            ApplyHand();
-        }
-        catch (Exception e)
-        {
-            MainFile.Logger.Error($"Failed to peek at a hand: {e}");
-            PeekPlayer = null;
-        }
-    }
+    public static bool CanSwitchView =>
+        _ui == null || !GodotObject.IsInstanceValid(_ui) || !(_ui.Hand.InCardPlay || _ui.Hand.IsInCardSelection);
 
     private static void ApplyHand()
     {
@@ -257,40 +210,6 @@ public static class SpectateView
         else
         {
             RestoreCombatUi();
-        }
-    }
-
-    /// <summary>
-    /// The relic row sits in the run's top bar rather than in combat, so it is handled apart from
-    /// <see cref="BindCombatUi" /> and guarded on its own: a failure here only costs the relics, not the spectate.
-    /// </summary>
-    private static void ApplyRelics(Player? target)
-    {
-        if (_localPlayer == null)
-        {
-            return;
-        }
-        try
-        {
-            RelicView.Show(target != null && SpectateConfig.ReplaceRelics ? target : _localPlayer);
-        }
-        catch (Exception e)
-        {
-            MainFile.Logger.Error($"Failed to swap the relic row: {e}");
-        }
-    }
-
-    /// <summary>Same idea as <see cref="ApplyRelics" />, but through a read-only copy: see <see cref="NSpectatePotionBelt" />.</summary>
-    private static void ApplyPotions(Player? target)
-    {
-        try
-        {
-            NSpectatePotionBelt.Show(ref _potionBelt, target != null && SpectateConfig.ReplacePotions ? target : null);
-        }
-        catch (Exception e)
-        {
-            MainFile.Logger.Error($"Failed to swap the potion belt: {e}");
-            _potionBelt = null;
         }
     }
 
