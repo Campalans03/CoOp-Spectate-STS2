@@ -9,6 +9,7 @@ using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Nodes.Cards;
+using MegaCrit.Sts2.Core.Nodes.Cards.Holders;
 using MegaCrit.Sts2.Core.Nodes.Combat;
 
 namespace SpectateMod.SpectateModCode.Ui;
@@ -88,8 +89,15 @@ public partial class NSpectateHand : Control
 
     private Control _cardLayer = null!;
     private Control _hoverLayer = null!;
+    private RichTextLabel _selectionHeader = null!;
+    private Control? _selectionBackstop;
+    private Tween? _backstopTween;
     private NPlayerHand? _realHand;
+    private Player? _player;
     private CardPile? _pile;
+
+    /// <summary>How far we are holding ourselves up against the real hand's disabled drop, see FollowRealHand.</summary>
+    private float _drop;
     private PlayerCombatState? _combatState;
     private bool _trackingCombat;
     private CardModel? _remoteHovered;
@@ -104,6 +112,13 @@ public partial class NSpectateHand : Control
         };
         node._realHand = realHand;
 
+        // First, so it darkens what is behind the hand and not the cards.
+        node._selectionBackstop = CreateSelectionBackstop(realHand._selectModeBackstop);
+        if (node._selectionBackstop != null)
+        {
+            node.AddChildSafely(node._selectionBackstop);
+        }
+
         node._cardLayer = new Control { Name = "Cards", MouseFilter = MouseFilterEnum.Ignore };
         node.AddChildSafely(node._cardLayer);
 
@@ -112,12 +127,86 @@ public partial class NSpectateHand : Control
         // mouse events at all.
         node._hoverLayer = new Control { Name = "HoverTargets", MouseFilter = MouseFilterEnum.Ignore };
         node.AddChildSafely(node._hoverLayer);
+
+        node._selectionHeader = CreateSelectionHeader(realHand._selectionHeader);
+        node.AddChildSafely(node._selectionHeader);
         return node;
+    }
+
+    /// <summary>
+    /// Our copy of the "Choose a card to discard" line the real hand shows while picking. A fresh label dressed in the
+    /// real one's fonts and colours rather than a duplicate of it: that one is a game script with its own ideas about
+    /// sizing, and we only need the look.
+    /// </summary>
+    private static RichTextLabel CreateSelectionHeader(RichTextLabel? source)
+    {
+        RichTextLabel header = new()
+        {
+            Name = "SpectateSelectionHeader",
+            BbcodeEnabled = true,
+            ScrollActive = false,
+            MouseFilter = MouseFilterEnum.Ignore,
+            Visible = false
+        };
+        if (source == null || !GodotObject.IsInstanceValid(source))
+        {
+            return header;
+        }
+        foreach (string font in new[] { "normal_font", "bold_font", "italics_font", "bold_italics_font" })
+        {
+            header.AddThemeFontOverride(font, source.GetThemeFont(font));
+            header.AddThemeFontSizeOverride($"{font}_size", source.GetThemeFontSize($"{font}_size"));
+        }
+        foreach (string color in new[] { "default_color", "font_outline_color", "font_shadow_color" })
+        {
+            header.AddThemeColorOverride(color, source.GetThemeColor(color));
+        }
+        header.AddThemeConstantOverride("outline_size", source.GetThemeConstant("outline_size"));
+        // The game's own tags ([gold], [blue], ...) are custom effects MegaRichTextLabel installs on itself in _Ready;
+        // without them a plain RichTextLabel prints the tags as text. The source is ready by now, so borrow its set.
+        header.CustomEffects = source.CustomEffects.Duplicate();
+        return header;
+    }
+
+    /// <summary>
+    /// Our copy of the shade the real hand drops over the screen while picking. A plain copy of the node (no script,
+    /// no signals) that never takes the mouse: the real one swallows clicks while it is up, which is right for the
+    /// player choosing and would lock out the one watching.
+    /// </summary>
+    private static Control? CreateSelectionBackstop(Control? source)
+    {
+        if (source == null || !GodotObject.IsInstanceValid(source) || source.Duplicate(0) is not Control copy)
+        {
+            return null;
+        }
+        copy.Name = "SpectateSelectionBackstop";
+        copy.Visible = false;
+        IgnoreMouse(copy);
+        return copy;
+    }
+
+    private static void IgnoreMouse(Node node)
+    {
+        if (node is Control control)
+        {
+            control.MouseFilter = MouseFilterEnum.Ignore;
+        }
+        foreach (Node child in node.GetChildren())
+        {
+            IgnoreMouse(child);
+        }
+    }
+
+    public override void _EnterTree()
+    {
+        base._EnterTree();
+        HandSelection.Changed += OnSelectionChanged;
     }
 
     public void Bind(Player player)
     {
         Unbind();
+        _player = player;
         _pile = player.PlayerCombatState?.Hand;
         if (_pile == null)
         {
@@ -136,6 +225,7 @@ public partial class NSpectateHand : Control
         CombatManager.Instance.StateTracker.CombatStateChanged += OnCombatStateChanged;
         _trackingCombat = true;
         Rebuild();
+        RefreshSelectionHeader();
     }
 
     public void Unbind()
@@ -164,7 +254,53 @@ public partial class NSpectateHand : Control
         _playVisual = PlayVisual.None;
         _previewCard = null;
         _previewTarget = null;
+        _player = null;
         ClearCards();
+        RefreshSelectionHeader();
+    }
+
+    private void OnSelectionChanged(ulong netId)
+    {
+        if (_player == null || _player.NetId != netId)
+        {
+            return;
+        }
+        RefreshSelectionHeader();
+        Layout();
+    }
+
+    private void RefreshSelectionHeader()
+    {
+        HandSelection.Choice? choice = _player == null ? null : HandSelection.GetChoice(_player);
+        _selectionHeader.Visible = choice != null;
+        if (choice != null)
+        {
+            _selectionHeader.Text = $"[center]{choice.Prompt}[/center]";
+        }
+        ShowSelectionBackstop(choice != null);
+    }
+
+    /// <summary>Fades the shade in and out over the same 0.2s NPlayerHand.SelectCards uses.</summary>
+    private void ShowSelectionBackstop(bool show)
+    {
+        Control? backstop = _selectionBackstop;
+        if (backstop == null || !GodotObject.IsInstanceValid(backstop) || backstop.Visible == show)
+        {
+            return;
+        }
+        _backstopTween?.Kill();
+        _backstopTween = null;
+        Color modulate = backstop.SelfModulate;
+        if (!show || !IsInsideTree())
+        {
+            backstop.Visible = false;
+            return;
+        }
+        modulate.A = 0f;
+        backstop.SelfModulate = modulate;
+        backstop.Visible = true;
+        _backstopTween = CreateTween();
+        _backstopTween.TweenProperty(backstop, "self_modulate:a", 1f, 0.2);
     }
 
     /// <summary>Raises the card the teammate is pointing at, mirroring their hover.</summary>
@@ -270,6 +406,7 @@ public partial class NSpectateHand : Control
     public override void _ExitTree()
     {
         base._ExitTree();
+        HandSelection.Changed -= OnSelectionChanged;
         Unbind();
     }
 
@@ -398,8 +535,22 @@ public partial class NSpectateHand : Control
         // _disablePosition and greys it out. That is about our cards being unplayable, not the teammate's, and since we
         // hang off the hand we would sink with it and lose the bottom of the fan off screen. Undo just that much of the
         // drop; anything past it is AnimOut at the end of combat, which we still want to follow off screen.
-        float drop = Mathf.Clamp(_realHand.Position.Y, 0f, disabledHandDrop);
-        GlobalPosition = _realHand.CardHolderContainer.GlobalPosition + Vector2.Up * drop;
+        _drop = Mathf.Clamp(_realHand.Position.Y, 0f, disabledHandDrop);
+        GlobalPosition = _realHand.CardHolderContainer.GlobalPosition + Vector2.Up * _drop;
+
+        // Where the real hand puts its own prompt, lifted by the same amount as the cards.
+        RichTextLabel? header = _realHand._selectionHeader;
+        if (_selectionHeader.Visible && header != null && GodotObject.IsInstanceValid(header))
+        {
+            _selectionHeader.Size = header.Size;
+            _selectionHeader.GlobalPosition = header.GlobalPosition + Vector2.Up * _drop;
+        }
+        Control? backstop = _realHand._selectModeBackstop;
+        if (_selectionBackstop is { Visible: true } && backstop != null && GodotObject.IsInstanceValid(backstop))
+        {
+            _selectionBackstop.Size = backstop.Size;
+            _selectionBackstop.GlobalPosition = backstop.GlobalPosition + Vector2.Up * _drop;
+        }
 
         // Modulate multiplies down the tree, so the inverse of the hand's tint cancels the grey on our cards.
         Color tint = _realHand.Modulate;
@@ -413,7 +564,16 @@ public partial class NSpectateHand : Control
     {
         FollowRealHand();
 
-        List<CardModel> visible = _order.Where(_slots.ContainsKey).ToList();
+        // While they pick from their hand, the game shows only the cards that qualify and lifts the ones they have
+        // marked out of the fan into a row above it. Do the same.
+        HandSelection.Choice? choice = _player == null ? null : HandSelection.GetChoice(_player);
+        IReadOnlyList<CardModel> marked = _player == null ? Array.Empty<CardModel>() : HandSelection.GetMarked(_player);
+        List<CardModel> visible = _order
+            .Where(c => _slots.ContainsKey(c) && !marked.Contains(c) && (choice == null || choice.Allows(c)))
+            .ToList();
+        HideLeftOut(visible, marked);
+        LayoutMarked(marked);
+
         int count = Math.Min(visible.Count, maxLayoutCards);
         if (count <= 0)
         {
@@ -500,6 +660,79 @@ public partial class NSpectateHand : Control
                 hitbox.Rotation = angle;
             }
         }
+    }
+
+    /// <summary>Hides the cards that are neither in the fan nor marked: the ones a choice rules out.</summary>
+    private void HideLeftOut(List<CardModel> inFan, IReadOnlyList<CardModel> marked)
+    {
+        foreach ((CardModel card, Control slot) in _slots)
+        {
+            if (inFan.Contains(card) || marked.Contains(card) || !GodotObject.IsInstanceValid(slot))
+            {
+                continue;
+            }
+            slot.Visible = false;
+            if (_hitboxes.TryGetValue(card, out Control? hitbox) && GodotObject.IsInstanceValid(hitbox))
+            {
+                hitbox.Visible = false;
+            }
+        }
+    }
+
+    /// <summary>
+    /// The cards the teammate has marked, in a row above the fan. Laid out the way NSelectedHandCardContainer does it:
+    /// centred on the real container, one card width apart, each card shrunk to a holder's small scale. The one being
+    /// read, by them or by us, comes up to full size.
+    /// </summary>
+    private void LayoutMarked(IReadOnlyList<CardModel> marked)
+    {
+        List<CardModel> shown = marked.Where(_slots.ContainsKey).ToList();
+        if (shown.Count == 0)
+        {
+            return;
+        }
+
+        Vector2 centre = MarkedRowCentre();
+        CardModel? focus = _localHovered ?? _remoteHovered;
+        float x = -NCard.defaultSize.X * (shown.Count - 1) * 0.5f;
+        foreach (CardModel card in shown)
+        {
+            Vector2 position = centre + new Vector2(x, 0f);
+            x += NCard.defaultSize.X;
+            Control slot = _slots[card];
+            if (!GodotObject.IsInstanceValid(slot))
+            {
+                continue;
+            }
+            bool isFocus = card == focus;
+            slot.Visible = true;
+            slot.Rotation = 0f;
+            slot.Scale = isFocus ? Vector2.One : NCardHolder.smallScale;
+            slot.Position = position;
+            slot.ZIndex = isFocus ? 2 : 1;
+
+            if (_hitboxes.TryGetValue(card, out Control? hitbox) && GodotObject.IsInstanceValid(hitbox))
+            {
+                hitbox.Visible = true;
+                hitbox.Position = position - NCard.defaultSize * 0.5f;
+                hitbox.Scale = NCardHolder.smallScale;
+                hitbox.Rotation = 0f;
+            }
+        }
+    }
+
+    /// <summary>
+    /// The real hand's selected-card container, in our space. It sinks with the real hand, so lift it by the same
+    /// amount we lift ourselves.
+    /// </summary>
+    private Vector2 MarkedRowCentre()
+    {
+        Control? container = _realHand?._selectedHandCardContainer;
+        if (container == null || !GodotObject.IsInstanceValid(container))
+        {
+            return new Vector2(0f, -NCard.defaultSize.Y);
+        }
+        return container.GlobalPosition + Vector2.Up * _drop - GlobalPosition;
     }
 
     private void ApplyPlayVisual()

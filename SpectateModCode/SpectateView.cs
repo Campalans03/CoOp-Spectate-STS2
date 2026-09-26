@@ -33,6 +33,7 @@ public static class SpectateView
     private static NSpectateHand? _hand;
     private static NSpectateOverlay? _overlay;
     private static NSpectateInput? _input;
+    private static NSpectateSelectionSync? _selectionSync;
     private static NSpectateDrawLayer? _drawings;
 
     private static Player? _localPlayer;
@@ -71,6 +72,9 @@ public static class SpectateView
         _input = NSpectateInput.Create(_drawings);
         ui.AddChildSafely(_input);
 
+        _selectionSync = NSpectateSelectionSync.Create(ui.Hand);
+        ui.AddChildSafely(_selectionSync);
+
         SpectateController.ViewChanged += OnViewChanged;
         RunManager.Instance.HoveredModelTracker.HoverChanged += OnHoverChanged;
 
@@ -105,11 +109,13 @@ public static class SpectateView
         _hand?.QueueFreeSafely();
         _overlay?.QueueFreeSafely();
         _input?.QueueFreeSafely();
+        _selectionSync?.QueueFreeSafely();
         _drawings?.QueueFreeSafely();
         _hand = null;
         _drawings = null;
         _overlay = null;
         _input = null;
+        _selectionSync = null;
         _ui = null;
         _localPlayer = null;
         _localEnergyCounter = null;
