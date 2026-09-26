@@ -4,15 +4,16 @@ using MegaCrit.Sts2.Core.Context;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Nodes.Combat;
 using MegaCrit.Sts2.Core.Nodes.Rooms;
+using MegaCrit.Sts2.Core.Nodes.Screens.Capstones;
 using MegaCrit.Sts2.Core.Rooms;
 
 namespace SpectateMod.SpectateModCode.Ui;
 
 /// <summary>
-/// Mouse input during combat. Left click on a player spectates them. While spectating, holding the right button draws
-/// on the teammate's screen, the same button the map draws with. Creature nodes have no press handler of their own, so
-/// this listens at the _Input stage and uses the node the mouse is already hovering
-/// (<see cref="NCreature.IsFocused" />) rather than hit-testing by hand.
+/// The mod's mouse input, for the whole run. While spectating, holding the right button draws on the teammate's screen
+/// wherever they are, the same button the map draws with. In combat, a left click on a player also spectates them.
+/// Creature nodes have no press handler of their own, so this listens at the _Input stage and uses the node the mouse
+/// is already hovering (<see cref="NCreature.IsFocused" />) rather than hit-testing by hand.
 /// </summary>
 public partial class NSpectateInput : Node
 {
@@ -32,12 +33,17 @@ public partial class NSpectateInput : Node
                 ContinueDrawing(motion.Position);
                 return;
             case InputEventMouseButton { ButtonIndex: MouseButton.Right, Pressed: false }:
-                StopDrawing();
+                if (StopDrawing())
+                {
+                    GetViewport().SetInputAsHandled();
+                }
                 return;
             case InputEventMouseButton { ButtonIndex: MouseButton.Right, Pressed: true } press:
-                if (IsCombatFree())
+                // Taken once a line starts, press and release both: out of combat the right button also previews cards,
+                // and a line drawn across one shouldn't end by opening it.
+                if (CanStartDrawing() && TryStartDrawing(press.Position))
                 {
-                    TryStartDrawing(press.Position);
+                    GetViewport().SetInputAsHandled();
                 }
                 return;
             case InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: true }:
@@ -68,6 +74,19 @@ public partial class NSpectateInput : Node
                             && !room.Ui.Hand.IsInCardSelection;
     }
 
+    /// <summary>
+    /// In combat, only while combat isn't using the button itself. Anywhere else, only without a menu up: those cover
+    /// the screen being drawn on.
+    /// </summary>
+    private static bool CanStartDrawing()
+    {
+        if (NCombatRoom.Instance is { Mode: CombatRoomMode.ActiveCombat })
+        {
+            return IsCombatFree();
+        }
+        return NCapstoneContainer.Instance is not { InUse: true };
+    }
+
     private static bool TryToggleSpectate(NCombatRoom room)
     {
         NCreature? clicked = room.CreatureNodes.FirstOrDefault(c => c.IsFocused && c.Entity.IsPlayer);
@@ -94,18 +113,16 @@ public partial class NSpectateInput : Node
         return false;
     }
 
-    /// <summary>
-    /// The press is left unhandled so nothing else listening for it misses out. Nothing on the combat screen reacts to
-    /// the right button outside card play, so it can start anywhere, buttons included; pointing at End Turn is fair.
-    /// </summary>
-    private void TryStartDrawing(Vector2 position)
+    /// <summary>A line can start anywhere, buttons included; pointing at End Turn or at a shop item is fair.</summary>
+    private bool TryStartDrawing(Vector2 position)
     {
         if (!SpectateConfig.DrawOnClick || _drawings == null || !GodotObject.IsInstanceValid(_drawings)
             || SpectateController.Target is not { } target)
         {
-            return;
+            return false;
         }
         _drawings.BeginLocal(target, position);
+        return true;
     }
 
     private void ContinueDrawing(Vector2 position)
@@ -123,11 +140,14 @@ public partial class NSpectateInput : Node
         _drawings.ContinueLocal(position);
     }
 
-    private void StopDrawing()
+    /// <returns>Whether a line was in progress.</returns>
+    private bool StopDrawing()
     {
-        if (_drawings != null && GodotObject.IsInstanceValid(_drawings))
+        if (_drawings == null || !GodotObject.IsInstanceValid(_drawings) || !_drawings.IsLocalDrawing)
         {
-            _drawings.EndLocal();
+            return false;
         }
+        _drawings.EndLocal();
+        return true;
     }
 }

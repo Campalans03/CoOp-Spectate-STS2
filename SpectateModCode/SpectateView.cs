@@ -32,9 +32,7 @@ public static class SpectateView
     private static NCombatUi? _ui;
     private static NSpectateHand? _hand;
     private static NSpectateOverlay? _overlay;
-    private static NSpectateInput? _input;
     private static NSpectateSelectionSync? _selectionSync;
-    private static NSpectateDrawLayer? _drawings;
 
     private static Player? _localPlayer;
     private static NEnergyCounter? _localEnergyCounter;
@@ -63,14 +61,6 @@ public static class SpectateView
         _overlay = NSpectateOverlay.Create(_hand);
         ui.AddChildSafely(_overlay);
         _overlay.MoveToFrontSafely();
-
-        // Built even when we are not spectating: somebody may be watching us, and what they draw lands on our screen.
-        _drawings = NSpectateDrawLayer.Create();
-        ui.AddChildSafely(_drawings);
-        _drawings.MoveToFrontSafely();
-
-        _input = NSpectateInput.Create(_drawings);
-        ui.AddChildSafely(_input);
 
         _selectionSync = NSpectateSelectionSync.Create(ui.Hand);
         ui.AddChildSafely(_selectionSync);
@@ -108,13 +98,9 @@ public static class SpectateView
 
         _hand?.QueueFreeSafely();
         _overlay?.QueueFreeSafely();
-        _input?.QueueFreeSafely();
         _selectionSync?.QueueFreeSafely();
-        _drawings?.QueueFreeSafely();
         _hand = null;
-        _drawings = null;
         _overlay = null;
-        _input = null;
         _selectionSync = null;
         _ui = null;
         _localPlayer = null;

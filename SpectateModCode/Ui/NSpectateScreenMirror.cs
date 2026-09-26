@@ -5,6 +5,7 @@ using Godot;
 using MegaCrit.Sts2.addons.mega_text;
 using MegaCrit.Sts2.Core.Assets;
 using MegaCrit.Sts2.Core.Entities.Cards;
+using MegaCrit.Sts2.Core.Entities.Merchant;
 using MegaCrit.Sts2.Core.Entities.Multiplayer;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Helpers;
@@ -15,13 +16,17 @@ using MegaCrit.Sts2.Core.Nodes.CommonUi;
 using MegaCrit.Sts2.Core.Nodes.Cards;
 using MegaCrit.Sts2.Core.Nodes.Cards.Holders;
 using MegaCrit.Sts2.Core.Nodes.HoverTips;
+using MegaCrit.Sts2.Core.Nodes;
 using MegaCrit.Sts2.Core.Nodes.Multiplayer;
 using MegaCrit.Sts2.Core.Nodes.Rewards;
 using MegaCrit.Sts2.Core.Nodes.Screens;
 using MegaCrit.Sts2.Core.Nodes.Screens.CardSelection;
 using MegaCrit.Sts2.Core.Nodes.Screens.Map;
+using MegaCrit.Sts2.Core.Nodes.Rooms;
 using MegaCrit.Sts2.Core.Nodes.Screens.Overlays;
+using MegaCrit.Sts2.Core.Nodes.Screens.Shops;
 using MegaCrit.Sts2.Core.Rewards;
+using MegaCrit.Sts2.Core.Rooms;
 using MegaCrit.Sts2.Core.Runs;
 using SpectateMod.SpectateModCode.Patches;
 
@@ -49,8 +54,16 @@ public partial class NSpectateScreenMirror : Control
         None,
         Rewards,
         RewardCards,
-        ChooseCards
+        ChooseCards,
+        Shop
     }
+
+    private const string merchantInventoryScene = "res://scenes/merchant/merchant_inventory.tscn";
+
+    /// <summary>What NMerchantInventory does to its parts when it opens (its _openPosition and backstop fade).</summary>
+    private const float rugOpenY = 80f;
+
+    private const float rugBackstopAlpha = 0.8f;
 
     /// <summary>Distance between card centres in NCardRewardSelectionScreen.RefreshOptions.</summary>
     private const float rewardCardSpacing = 350f;
@@ -72,6 +85,11 @@ public partial class NSpectateScreenMirror : Control
     private Mode _mode;
     private Player? _player;
     private CardChoice.Choice? _choice;
+    private MerchantInventory? _shop;
+    private NMerchantInventory? _rug;
+    private List<MerchantEntry> _shopEntries = new();
+    private readonly HashSet<NMerchantSlot> _shownSold = new();
+    private object? _failed;
     private readonly List<Reward> _shownRewards = new();
     private readonly List<CardModel> _shownCards = new();
     private readonly List<CardChoice.Alternative> _shownAlternatives = new();
@@ -81,7 +99,7 @@ public partial class NSpectateScreenMirror : Control
     private CardModel? _localHovered;
 
     private bool _hidingOurs;
-    private Color _oursModulate = Colors.White;
+    private readonly Dictionary<CanvasItem, Color> _hidden = new();
 
     public static NSpectateScreenMirror Create()
     {
@@ -151,10 +169,12 @@ public partial class NSpectateScreenMirror : Control
         Player? viewed = SpectateController.Viewed;
         CardChoice.Choice? choice = null;
         RewardsSet? rewards = null;
+        MerchantInventory? shop = null;
         try
         {
             choice = viewed == null ? null : CardChoice.Get(viewed);
             rewards = viewed == null || choice != null ? null : OpenRewardsSet(viewed);
+            shop = viewed == null || choice != null || rewards != null ? null : OpenShop(viewed);
         }
         catch (Exception e)
         {
@@ -164,17 +184,25 @@ public partial class NSpectateScreenMirror : Control
         {
             CardChoice.Kind.Reward => Mode.RewardCards,
             CardChoice.Kind.ChooseACard => Mode.ChooseCards,
-            _ => rewards != null ? Mode.Rewards : Mode.None
+            _ => rewards != null ? Mode.Rewards : shop != null ? Mode.Shop : Mode.None
         };
+
+        // A screen that failed to build stays down until something changes, rather than failing again every frame.
+        (Player?, Mode, object?) key = (viewed, mode, (object?)choice ?? shop);
+        if (_failed != null && _failed.Equals(key))
+        {
+            mode = Mode.None;
+        }
 
         try
         {
-            if (mode != _mode || viewed != _player || choice != _choice)
+            if (mode != _mode || viewed != _player || choice != _choice || shop != _shop)
             {
                 CloseScreen();
                 _mode = mode;
                 _player = mode == Mode.None ? null : viewed;
                 _choice = choice;
+                _shop = shop;
                 OpenScreen();
             }
             Visible = _mode != Mode.None;
@@ -189,16 +217,40 @@ public partial class NSpectateScreenMirror : Control
                 case Mode.ChooseCards:
                     FillCards(choice!);
                     break;
+                case Mode.Shop:
+                    FillShop();
+                    break;
             }
         }
         catch (Exception e)
         {
             MainFile.Logger.Error($"Failed to mirror a teammate's screen: {e}");
+            _failed = key;
             CloseScreen();
             _mode = Mode.None;
+            _player = null;
+            _choice = null;
+            _shop = null;
             Visible = false;
             HideOurs(false);
         }
+    }
+
+    /// <summary>
+    /// The teammate's stock in the shop we are all standing in, while they have the rug rolled out. Every client builds
+    /// every player's stock on entering the room, so it is already here; only the rug being open, and what has sold,
+    /// comes from them (<see cref="ShopState" />). Not while something of theirs covers the rug, like their deck.
+    /// </summary>
+    private MerchantInventory? OpenShop(Player player)
+    {
+        IRunState? run = SpectateController.Run;
+        if (run?.CurrentRoom is not MerchantRoom room || !ShopState.Get(player).Open
+                                                     || _sync?.GetScreenType(player.NetId) != NetScreenType.Room)
+        {
+            return null;
+        }
+        int slot = run.GetPlayerSlotIndex(player);
+        return slot >= 0 && slot < room.Inventories.Count ? room.Inventories[slot] : null;
     }
 
     /// <summary>
@@ -270,6 +322,9 @@ public partial class NSpectateScreenMirror : Control
                 _cardRow = screen.GetNode<Control>("CardRow");
                 break;
             }
+            case Mode.Shop:
+                OpenRug();
+                break;
             default:
                 return;
         }
@@ -288,6 +343,70 @@ public partial class NSpectateScreenMirror : Control
         this.AddChildSafely(screen);
         _screen = screen;
         return screen;
+    }
+
+    /// <summary>
+    /// The merchant's rug, filled with the teammate's stock. Unlike the other screens it keeps its own code: that is
+    /// what fills the slots, and nothing in it acts on its own, since buying only happens on a click, which
+    /// <see cref="MerchantSlotPatches" /> stops. It is laid out open, the way Open() leaves it, minus the welcome line,
+    /// the sound and the screen focus.
+    /// </summary>
+    private void OpenRug()
+    {
+        NMerchantInventory rug = PreloadManager.Cache.GetScene(merchantInventoryScene)
+            .Instantiate<NMerchantInventory>(PackedScene.GenEditState.Disabled);
+        rug.Name = "MirrorMerchantInventory";
+        this.AddChildSafely(rug);
+        _screen = rug;
+        _rug = rug;
+
+        // Its _Ready makes itself the screen-shake target; hand that back to the room we are really in.
+        if (NMerchantRoom.Instance is { } room && GodotObject.IsInstanceValid(room))
+        {
+            NGame.Instance?.SetScreenShakeTarget(room);
+        }
+
+        rug.Initialize(_shop!, MerchantRoom.Dialogue);
+        _shopEntries = _shop!.AllEntries.ToList();
+        rug._slotsContainer.Position = new Vector2(rug._slotsContainer.Position.X, rugOpenY);
+        Color shade = rug._backstop.Modulate;
+        shade.A = rugBackstopAlpha;
+        rug._backstop.Modulate = shade;
+        rug.MouseFilter = MouseFilterEnum.Stop;
+        foreach (NMerchantCard card in rug.GetCardSlots())
+        {
+            card.OnInventoryOpened();
+        }
+    }
+
+    /// <summary>
+    /// Takes what the teammate has bought off the rug. Our copy of their stock never hears of it, so it is done here
+    /// from what they report, and done every frame: a slot puts itself back on show whenever the gold changes.
+    /// </summary>
+    private void FillShop()
+    {
+        if (_rug == null || _player == null)
+        {
+            return;
+        }
+        ShopState.Rug state = ShopState.Get(_player);
+        foreach (NMerchantSlot slot in _rug.GetAllSlots())
+        {
+            if (!state.IsSold(_shopEntries.IndexOf(slot.Entry)))
+            {
+                continue;
+            }
+            if (slot is NMerchantCardRemoval removal)
+            {
+                // The removal service stays on the rug and shows itself as used instead.
+                if (_shownSold.Add(slot))
+                {
+                    removal.OnCardRemovalUsed();
+                }
+                continue;
+            }
+            slot.Visible = false;
+        }
     }
 
     private static void SetUpBanner(NCommonBanner banner)
@@ -426,27 +545,41 @@ public partial class NSpectateScreenMirror : Control
     }
 
     /// <summary>
-    /// Fades out our own overlays while theirs is up, so our rewards don't show through the shade under theirs. The map
-    /// is left alone: this layer sits above it and covers it, and the backstop keeps it from being clicked.
+    /// Fades out our own screens of the same kind while theirs is up, so ours don't show through the shade under
+    /// theirs: our overlays, and our own merchant rug. Only the look changes, so nothing of ours notices. Our map is
+    /// never under here: the run UI puts it away while we watch somebody who is not on it.
     /// </summary>
     private void HideOurs(bool hide)
     {
-        NOverlayStack? overlays = NOverlayStack.Instance;
-        if (hide)
+        // Their rug brings its own shade, as it does for them; the overlay one would darken it twice.
+        _backstop.Visible = _mode != Mode.Shop;
+        if (hide == _hidingOurs)
         {
-            if (!_hidingOurs && overlays != null && GodotObject.IsInstanceValid(overlays))
-            {
-                _oursModulate = overlays.Modulate;
-                overlays.Modulate = Colors.Transparent;
-                _hidingOurs = true;
-            }
             return;
         }
-        if (_hidingOurs && overlays != null && GodotObject.IsInstanceValid(overlays))
+        if (hide)
         {
-            overlays.Modulate = _oursModulate;
+            _hidden.Clear();
+            foreach (CanvasItem item in new CanvasItem?[] { NOverlayStack.Instance, NMerchantRoom.Instance?.Inventory }
+                         .OfType<CanvasItem>()
+                         .Where(GodotObject.IsInstanceValid))
+            {
+                _hidden[item] = item.Modulate;
+                item.Modulate = Colors.Transparent;
+            }
         }
-        _hidingOurs = false;
+        else
+        {
+            foreach ((CanvasItem item, Color modulate) in _hidden)
+            {
+                if (GodotObject.IsInstanceValid(item))
+                {
+                    item.Modulate = modulate;
+                }
+            }
+            _hidden.Clear();
+        }
+        _hidingOurs = hide;
     }
 
     /// <summary>
@@ -500,6 +633,14 @@ public partial class NSpectateScreenMirror : Control
             _cursor.QueueFreeSafely();
         }
         _cursor = null;
+        if (_rug != null && GodotObject.IsInstanceValid(_rug))
+        {
+            // Same as the reward buttons: a slot's tip only goes when the slot loses focus, and freeing it doesn't.
+            foreach (NMerchantSlot slot in _rug.GetAllSlots())
+            {
+                NHoverTipSet.Remove(slot);
+            }
+        }
         if (_screen != null && GodotObject.IsInstanceValid(_screen))
         {
             _screen.QueueFreeSafely();
@@ -508,6 +649,9 @@ public partial class NSpectateScreenMirror : Control
         _cardRow = null;
         _rewardList = null;
         _alternativeRow = null;
+        _rug = null;
+        _shopEntries.Clear();
+        _shownSold.Clear();
     }
 
     private void ClearRewards()

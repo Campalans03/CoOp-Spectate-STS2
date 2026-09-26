@@ -15,7 +15,7 @@ namespace SpectateMod.SpectateModCode.Ui;
 /// <summary>
 /// Drawing on a teammate's screen: a spectator holds the mouse down and drags, and the line shows up on the watched
 /// player's screen, on the spectator's own, and for anyone else watching the same player, since they all see the same
-/// board. Lines wipe themselves away a moment later (see <see cref="NSpectateStroke" />).
+/// screen, wherever that is. Lines wipe themselves away a moment later (see <see cref="NSpectateStroke" />).
 /// <para>
 /// Built on the same lines as the map's drawings (NMapDrawings): stroke events batched and sent at most every 50ms,
 /// positions through <see cref="NetCursorHelper" /> so a line lands on the same thing whatever resolution or aspect
@@ -24,7 +24,7 @@ namespace SpectateMod.SpectateModCode.Ui;
 /// </summary>
 public partial class NSpectateDrawLayer : Control
 {
-    /// <summary>Above the combat scene and the mirrored targeting arrow.</summary>
+    /// <summary>Above the combat scene, the mirrored targeting arrow and the mirrored screens.</summary>
     private const int drawZIndex = 60;
 
     /// <summary>The map's own send rate for drawings.</summary>
@@ -183,7 +183,7 @@ public partial class NSpectateDrawLayer : Control
         }
         // Only the screen that was drawn on, and whoever else is looking at that screen, has what it points to.
         bool isForMe = message.targetNetId == _netService.NetId;
-        bool isWatchingSame = SpectateController.Target?.NetId == message.targetNetId;
+        bool isWatchingSame = SpectateController.Viewed?.NetId == message.targetNetId;
         if (!isForMe && !isWatchingSame)
         {
             EndRemote(senderId);
@@ -239,14 +239,13 @@ public partial class NSpectateDrawLayer : Control
     /// </summary>
     private static Color ColorFor(ulong senderId)
     {
-        CombatState? state = SpectateController.State;
-        Player? sender = state?.Players.FirstOrDefault(p => p.NetId == senderId);
-        if (state == null || sender == null)
+        IRunState? run = SpectateController.Run;
+        Player? sender = run?.Players.FirstOrDefault(p => p.NetId == senderId);
+        if (run == null || sender == null)
         {
             return fallbackColor;
         }
-        IPlayerCollection players = state.RunState;
-        int slot = players.GetPlayerSlotIndex(sender);
+        int slot = run.GetPlayerSlotIndex(sender);
         return slot >= 0 ? slotColors[slot % slotColors.Length] : fallbackColor;
     }
 }

@@ -6,6 +6,7 @@ using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Multiplayer.Game.PeerInput;
 using MegaCrit.Sts2.Core.Nodes.CommonUi;
+using MegaCrit.Sts2.Core.Nodes.Screens.Map;
 using MegaCrit.Sts2.Core.Rooms;
 using MegaCrit.Sts2.Core.Runs;
 
@@ -95,8 +96,16 @@ public partial class NSpectateRunUi : Control
             this.AddChildSafely(rect);
         }
 
-        // Last, so the boxes sit above the label and border; those ignore the mouse, but the boxes have to receive it.
+        // Built even when we are not spectating: somebody may be watching us, and what they draw lands on our screen.
+        // Up here it covers every screen of the run, mirrored ones included.
+        NSpectateDrawLayer drawings = NSpectateDrawLayer.Create();
+        this.AddChildSafely(drawings);
+        this.AddChildSafely(NSpectateInput.Create(drawings));
+
+        // Last, so the boxes sit above everything else here; the rest ignores the mouse, but the boxes have to get it.
         this.AddChildSafely(NSpectatePeekBar.Create(_run));
+
+        this.AddChildSafely(NSpectateShopSync.Create());
     }
 
     public override void _EnterTree()
@@ -159,6 +168,24 @@ public partial class NSpectateRunUi : Control
         NetScreenType.RemotePlayerExpandedState
     };
 
+    /// <summary>
+    /// Watching somebody (for good or just for a look) puts our map away, so what is on screen is their view and not
+    /// our map with theirs behind it. Unless they are on the map too: it is shared, so ours is exactly what they see.
+    /// Opening the map ourselves while watching ends the watching first (<see cref="StopOnOwnScreen" />), so this
+    /// never fights with it.
+    /// </summary>
+    private static void CloseMapWhileWatching()
+    {
+        Player? viewed = SpectateController.Viewed;
+        PeerInputSynchronizer? sync = RunManager.Instance.InputSynchronizer;
+        if (viewed == null || sync == null || NMapScreen.Instance is not { IsOpen: true } map
+            || sync.GetScreenType(viewed.NetId) == NetScreenType.Map)
+        {
+            return;
+        }
+        map.Close();
+    }
+
     private void StopOnOwnScreen()
     {
         PeerInputSynchronizer? sync = RunManager.Instance.InputSynchronizer;
@@ -183,6 +210,7 @@ public partial class NSpectateRunUi : Control
     {
         base._Process(delta);
         StopOnOwnScreen();
+        CloseMapWhileWatching();
         // Which screen the teammate is on changes without any event of ours, so the label is re-read every frame.
         Player? viewed = SpectateController.Viewed;
         bool showLabel = viewed != null && SpectateConfig.ShowSpectatingLabel;
