@@ -5,6 +5,7 @@ using MegaCrit.Sts2.Core.Entities.Multiplayer;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Multiplayer.Game.PeerInput;
+using MegaCrit.Sts2.Core.Nodes.CommonUi;
 using MegaCrit.Sts2.Core.Rooms;
 using MegaCrit.Sts2.Core.Runs;
 
@@ -32,6 +33,8 @@ public partial class NSpectateRunUi : Control
     private IRunState _run = null!;
     private Label _label = null!;
     private NSpectatePotionBelt? _potionBelt;
+    private NSpectateScreenMirror? _mirror;
+    private NetScreenType _localScreen;
 
     public static NSpectateRunUi Create(IRunState run)
     {
@@ -103,6 +106,24 @@ public partial class NSpectateRunUi : Control
         SpectateController.ViewChanged += OnViewChanged;
     }
 
+    /// <summary>
+    /// The mirror of a teammate's screen goes in the global UI rather than in here, right above the overlay stack where
+    /// the real screens live (and above the map, so it covers ours), so like theirs it stays under what comes later:
+    /// the top bar, the party list, the menus.
+    /// </summary>
+    public override void _Ready()
+    {
+        base._Ready();
+        if (GetParent() is not NGlobalUi globalUi)
+        {
+            return;
+        }
+        _mirror = NSpectateScreenMirror.Create();
+        globalUi.AddChildSafely(_mirror);
+        int above = Math.Max(globalUi.Overlays.GetIndex(), globalUi.MapScreen.GetIndex());
+        globalUi.MoveChildSafely(_mirror, above + 1);
+    }
+
     public override void _ExitTree()
     {
         base._ExitTree();
@@ -118,11 +139,50 @@ public partial class NSpectateRunUi : Control
         SpectateController.ViewChanged -= OnViewChanged;
         ApplyRelics(null);
         ApplyPotions(null);
+        if (_mirror != null && GodotObject.IsInstanceValid(_mirror))
+        {
+            _mirror.QueueFreeSafely();
+        }
+        _mirror = null;
+    }
+
+    /// <summary>
+    /// Screens we can only get to by opening them ourselves. Opening one while watching somebody means we want our own
+    /// view back; leaving the spectate on would put our screen under their name. Menus (pause, settings) are left out:
+    /// they sit over everything and say nothing about whose screen is under them.
+    /// </summary>
+    private static readonly HashSet<NetScreenType> ownScreens = new()
+    {
+        NetScreenType.Map,
+        NetScreenType.DeckView,
+        NetScreenType.Compendium,
+        NetScreenType.RemotePlayerExpandedState
+    };
+
+    private void StopOnOwnScreen()
+    {
+        PeerInputSynchronizer? sync = RunManager.Instance.InputSynchronizer;
+        Player? me = SpectateController.Me;
+        if (sync == null || me == null)
+        {
+            return;
+        }
+        NetScreenType screen = sync.GetScreenType(me.NetId);
+        if (screen == _localScreen)
+        {
+            return;
+        }
+        _localScreen = screen;
+        if (SpectateController.IsSpectating && ownScreens.Contains(screen))
+        {
+            SpectateController.Stop();
+        }
     }
 
     public override void _Process(double delta)
     {
         base._Process(delta);
+        StopOnOwnScreen();
         // Which screen the teammate is on changes without any event of ours, so the label is re-read every frame.
         Player? viewed = SpectateController.Viewed;
         bool showLabel = viewed != null && SpectateConfig.ShowSpectatingLabel;

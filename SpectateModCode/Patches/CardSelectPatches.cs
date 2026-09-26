@@ -54,28 +54,11 @@ public static class CardSelectPatches
                 Prompt = prompt.GetFormattedText(),
                 Filter = filter
             });
-            EndWhenDone(player, task);
+            TaskWatch.WhenDone(task, () => HandSelection.End(player));
         }
         catch (Exception e)
         {
             MainFile.Logger.Error($"Failed to follow a teammate's hand selection: {e}");
         }
-    }
-
-    /// <summary>
-    /// Awaited rather than ContinueWith'd: started on the main thread, the await resumes there too, and Godot nodes
-    /// react to <see cref="HandSelection.Changed" />.
-    /// </summary>
-    private static async void EndWhenDone(Player player, Task task)
-    {
-        try
-        {
-            await task;
-        }
-        catch (Exception)
-        {
-            // Cancelled or failed; the game deals with that. All we do is stop showing the choice.
-        }
-        HandSelection.End(player);
     }
 }
