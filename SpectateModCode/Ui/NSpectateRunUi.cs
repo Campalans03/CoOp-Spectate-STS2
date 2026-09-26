@@ -108,6 +108,7 @@ public partial class NSpectateRunUi : Control
         NSpectateDrawLayer drawings = NSpectateDrawLayer.Create();
         this.AddChildSafely(drawings);
         this.AddChildSafely(NSpectateInput.Create(drawings));
+        this.AddChildSafely(NSpectateHotkeys.Create(_run));
 
         // Last, so the boxes sit above everything else here; the rest ignores the mouse, but the boxes have to get it.
         this.AddChildSafely(NSpectatePeekBar.Create(_run));

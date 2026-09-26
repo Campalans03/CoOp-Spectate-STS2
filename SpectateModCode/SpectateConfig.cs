@@ -53,6 +53,31 @@ public class SpectateConfig : SimpleModConfig
     /// </summary>
     public static bool DrawOnClick { get; set; } = true;
 
+    [ConfigSection("Hotkeys")]
+    public static bool EnableHotkeys { get; set; } = true;
+
+    /// <summary>
+    /// Held with every hotkey below. The game already uses the number keys on their own to pick cards, so the default
+    /// keeps them apart with Ctrl; with None the hotkey wins and the game never sees that key.
+    /// </summary>
+    public static SpectateHotkeyModifier HotkeyModifier { get; set; } = SpectateHotkeyModifier.Ctrl;
+
+    /// <summary>Spectate the player in that slot, counted the way the player boxes on the right are. Our own slot stops spectating.</summary>
+    [ConfigDropdownOverrideLocalization("HOTKEY")]
+    public static SpectateHotkey SpectatePlayer1Key { get; set; } = SpectateHotkey.Key1;
+
+    [ConfigDropdownOverrideLocalization("HOTKEY")]
+    public static SpectateHotkey SpectatePlayer2Key { get; set; } = SpectateHotkey.Key2;
+
+    [ConfigDropdownOverrideLocalization("HOTKEY")]
+    public static SpectateHotkey SpectatePlayer3Key { get; set; } = SpectateHotkey.Key3;
+
+    [ConfigDropdownOverrideLocalization("HOTKEY")]
+    public static SpectateHotkey SpectatePlayer4Key { get; set; } = SpectateHotkey.Key4;
+
+    [ConfigDropdownOverrideLocalization("HOTKEY")]
+    public static SpectateHotkey StopSpectatingKey { get; set; } = SpectateHotkey.Key0;
+
     [ConfigSection("What gets replaced")]
     public static bool ReplaceHand { get; set; } = true;
 
