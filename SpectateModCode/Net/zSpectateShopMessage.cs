@@ -10,8 +10,8 @@ namespace SpectateMod.SpectateModCode.Net;
 /// stays "room" while it is open, and a purchase runs only on the buyer's machine, reaching the others as "obtained
 /// this card" with their copy of the shop left fully stocked.
 /// <para>
-/// <b>Named to sort after <see cref="zSpectateHandSelectionMessage" />; keep it that way.</b> See the note on
-/// <see cref="zSpectateDrawMessage" />: each new message has to sort last so the older ones keep their ids.
+/// Sorts after <see cref="zSpectateDrawMessage" />, the one message a released version of the mod has, so that one
+/// keeps its id; see the note there and on <see cref="zSpectateGridSelectionMessage" />.
 /// </para>
 /// </summary>
 // ReSharper disable once InconsistentNaming

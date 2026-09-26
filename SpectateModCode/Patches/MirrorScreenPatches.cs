@@ -62,4 +62,50 @@ public static class MirrorScreenPatches
     [HarmonyPrefix]
     [HarmonyPatch(typeof(NChooseACardSelectionScreen), nameof(NChooseACardSelectionScreen._ExitTree))]
     public static bool ChooseACardExitTree(NChooseACardSelectionScreen __instance) => IsLive(__instance);
+
+    // The card grid screens. Each overrides _Ready on its own; _ExitTree comes from the shared base unless noted.
+
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(NCardGridSelectionScreen), nameof(NCardGridSelectionScreen._ExitTree))]
+    public static bool GridExitTree(NCardGridSelectionScreen __instance) => IsLive(__instance);
+
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(NSimpleCardSelectScreen), nameof(NSimpleCardSelectScreen._Ready))]
+    public static bool SimpleReady(NSimpleCardSelectScreen __instance) => IsLive(__instance);
+
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(NSimpleCardSelectScreen), nameof(NSimpleCardSelectScreen._EnterTree))]
+    public static bool SimpleEnterTree(NSimpleCardSelectScreen __instance) => IsLive(__instance);
+
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(NSimpleCardSelectScreen), nameof(NSimpleCardSelectScreen._ExitTree))]
+    public static bool SimpleExitTree(NSimpleCardSelectScreen __instance) => IsLive(__instance);
+
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(NCombatPileCardSelectScreen), nameof(NCombatPileCardSelectScreen._Ready))]
+    public static bool CombatPileReady(NCombatPileCardSelectScreen __instance) => IsLive(__instance);
+
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(NCombatPileCardSelectScreen), nameof(NCombatPileCardSelectScreen._EnterTree))]
+    public static bool CombatPileEnterTree(NCombatPileCardSelectScreen __instance) => IsLive(__instance);
+
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(NCombatPileCardSelectScreen), nameof(NCombatPileCardSelectScreen._ExitTree))]
+    public static bool CombatPileExitTree(NCombatPileCardSelectScreen __instance) => IsLive(__instance);
+
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(NDeckCardSelectScreen), nameof(NDeckCardSelectScreen._Ready))]
+    public static bool DeckReady(NDeckCardSelectScreen __instance) => IsLive(__instance);
+
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(NDeckUpgradeSelectScreen), nameof(NDeckUpgradeSelectScreen._Ready))]
+    public static bool DeckUpgradeReady(NDeckUpgradeSelectScreen __instance) => IsLive(__instance);
+
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(NDeckTransformSelectScreen), nameof(NDeckTransformSelectScreen._Ready))]
+    public static bool DeckTransformReady(NDeckTransformSelectScreen __instance) => IsLive(__instance);
+
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(NDeckEnchantSelectScreen), nameof(NDeckEnchantSelectScreen._Ready))]
+    public static bool DeckEnchantReady(NDeckEnchantSelectScreen __instance) => IsLive(__instance);
 }

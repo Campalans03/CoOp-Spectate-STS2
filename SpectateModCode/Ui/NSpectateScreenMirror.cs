@@ -14,6 +14,7 @@ using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Multiplayer.Game.PeerInput;
 using MegaCrit.Sts2.Core.Nodes.CommonUi;
 using MegaCrit.Sts2.Core.Nodes.Cards;
+using MegaCrit.Sts2.Core.Nodes.GodotExtensions;
 using MegaCrit.Sts2.Core.Nodes.Cards.Holders;
 using MegaCrit.Sts2.Core.Nodes.HoverTips;
 using MegaCrit.Sts2.Core.Nodes;
@@ -55,7 +56,8 @@ public partial class NSpectateScreenMirror : Control
         Rewards,
         RewardCards,
         ChooseCards,
-        Shop
+        Shop,
+        Grid
     }
 
     private const string merchantInventoryScene = "res://scenes/merchant/merchant_inventory.tscn";
@@ -84,8 +86,11 @@ public partial class NSpectateScreenMirror : Control
 
     private Mode _mode;
     private Player? _player;
-    private CardChoice.Choice? _choice;
-    private MerchantInventory? _shop;
+    /// <summary>What the open copy shows: a RewardsSet, a CardChoice or GridSelection choice, or a MerchantInventory.</summary>
+    private object? _source;
+    private NCardGrid? _grid;
+    private readonly List<CardModel> _shownOptions = new();
+    private readonly HashSet<CardModel> _shownMarked = new();
     private NMerchantInventory? _rug;
     private List<MerchantEntry> _shopEntries = new();
     private readonly HashSet<NMerchantSlot> _shownSold = new();
@@ -167,57 +172,50 @@ public partial class NSpectateScreenMirror : Control
         base._Process(delta);
 
         Player? viewed = SpectateController.Viewed;
-        CardChoice.Choice? choice = null;
-        RewardsSet? rewards = null;
-        MerchantInventory? shop = null;
+        Mode mode = Mode.None;
+        object? source = null;
         try
         {
-            choice = viewed == null ? null : CardChoice.Get(viewed);
-            rewards = viewed == null || choice != null ? null : OpenRewardsSet(viewed);
-            shop = viewed == null || choice != null || rewards != null ? null : OpenShop(viewed);
+            (mode, source) = viewed == null ? (Mode.None, null) : WhatIsUp(viewed);
         }
         catch (Exception e)
         {
             MainFile.Logger.Error($"Failed to read a teammate's screen: {e}");
         }
-        Mode mode = choice?.Kind switch
-        {
-            CardChoice.Kind.Reward => Mode.RewardCards,
-            CardChoice.Kind.ChooseACard => Mode.ChooseCards,
-            _ => rewards != null ? Mode.Rewards : shop != null ? Mode.Shop : Mode.None
-        };
 
         // A screen that failed to build stays down until something changes, rather than failing again every frame.
-        (Player?, Mode, object?) key = (viewed, mode, (object?)choice ?? shop);
+        (Player?, Mode, object?) key = (viewed, mode, source);
         if (_failed != null && _failed.Equals(key))
         {
             mode = Mode.None;
+            source = null;
         }
 
         try
         {
-            if (mode != _mode || viewed != _player || choice != _choice || shop != _shop)
+            if (mode != _mode || viewed != _player || source != _source)
             {
                 CloseScreen();
                 _mode = mode;
                 _player = mode == Mode.None ? null : viewed;
-                _choice = choice;
-                _shop = shop;
+                _source = mode == Mode.None ? null : source;
                 OpenScreen();
             }
             Visible = _mode != Mode.None;
             HideOurs(Visible);
 
-            switch (_mode)
+            switch (_source)
             {
-                case Mode.Rewards:
-                    FillRewards(rewards!);
+                case RewardsSet rewards:
+                    FillRewards(rewards);
                     break;
-                case Mode.RewardCards:
-                case Mode.ChooseCards:
-                    FillCards(choice!);
+                case CardChoice.Choice choice:
+                    FillCards(choice);
                     break;
-                case Mode.Shop:
+                case GridSelection.Choice grid:
+                    FillGrid(grid);
+                    break;
+                case MerchantInventory:
                     FillShop();
                     break;
             }
@@ -229,11 +227,35 @@ public partial class NSpectateScreenMirror : Control
             CloseScreen();
             _mode = Mode.None;
             _player = null;
-            _choice = null;
-            _shop = null;
+            _source = null;
             Visible = false;
             HideOurs(false);
         }
+    }
+
+    /// <summary>
+    /// The screen the player has up that we can copy, and what it is showing. In the order they stack for them: a card
+    /// choice or a grid opens over their rewards, and all of those over the shop.
+    /// </summary>
+    private (Mode, object?) WhatIsUp(Player player)
+    {
+        if (CardChoice.Get(player) is { } choice)
+        {
+            return (choice.Kind == CardChoice.Kind.Reward ? Mode.RewardCards : Mode.ChooseCards, choice);
+        }
+        if (GridSelection.GetChoice(player) is { } grid)
+        {
+            return (Mode.Grid, grid);
+        }
+        if (OpenRewardsSet(player) is { } rewards)
+        {
+            return (Mode.Rewards, rewards);
+        }
+        if (OpenShop(player) is { } shop)
+        {
+            return (Mode.Shop, shop);
+        }
+        return (Mode.None, null);
     }
 
     /// <summary>
@@ -311,7 +333,7 @@ public partial class NSpectateScreenMirror : Control
                 screen.GetNode<Control>("%InspectPrompt").Visible = false;
                 screen.GetNode<Control>("%PeekButton").Visible = false;
                 NChoiceSelectionSkipButton skip = screen.GetNode<NChoiceSelectionSkipButton>("SkipButton");
-                if (_choice!.CanSkip)
+                if (((CardChoice.Choice)_source!).CanSkip)
                 {
                     skip.AnimateIn();
                 }
@@ -324,6 +346,9 @@ public partial class NSpectateScreenMirror : Control
             }
             case Mode.Shop:
                 OpenRug();
+                break;
+            case Mode.Grid:
+                OpenGrid((GridSelection.Choice)_source!);
                 break;
             default:
                 return;
@@ -366,8 +391,9 @@ public partial class NSpectateScreenMirror : Control
             NGame.Instance?.SetScreenShakeTarget(room);
         }
 
-        rug.Initialize(_shop!, MerchantRoom.Dialogue);
-        _shopEntries = _shop!.AllEntries.ToList();
+        MerchantInventory shop = (MerchantInventory)_source!;
+        rug.Initialize(shop, MerchantRoom.Dialogue);
+        _shopEntries = shop.AllEntries.ToList();
         rug._slotsContainer.Position = new Vector2(rug._slotsContainer.Position.X, rugOpenY);
         Color shade = rug._backstop.Modulate;
         shade.A = rugBackstopAlpha;
@@ -407,6 +433,122 @@ public partial class NSpectateScreenMirror : Control
             }
             slot.Visible = false;
         }
+    }
+
+    /// <summary>
+    /// Parts of the grid screens that their own code hides or fills on the way in: the confirm previews, the combat piles
+    /// and peek button that come up in combat. Looked up by name and skipped where a screen doesn't have one.
+    /// </summary>
+    private static readonly string[] gridPartsToHide =
+    {
+        "%PreviewContainer", "%UpgradeSinglePreviewContainer", "%UpgradeMultiPreviewContainer",
+        "%EnchantSinglePreviewContainer", "%EnchantMultiPreviewContainer", "%CombatPiles", "%PeekButton"
+    };
+
+    /// <summary>
+    /// The grid screen they have up, dressed the way its own _Ready would: the prompt underneath, the close button only
+    /// when they can back out, confirm off until something is picked, and for an enchant, the enchantment beside it.
+    /// </summary>
+    private void OpenGrid(GridSelection.Choice choice)
+    {
+        NCardGridSelectionScreen screen = choice.Screen switch
+        {
+            GridSelection.Screen.Simple => Instantiate<NSimpleCardSelectScreen>(NSimpleCardSelectScreen.ScenePath),
+            GridSelection.Screen.CombatPile =>
+                Instantiate<NCombatPileCardSelectScreen>(NCombatPileCardSelectScreen.ScenePath),
+            GridSelection.Screen.DeckUpgrade =>
+                Instantiate<NDeckUpgradeSelectScreen>(NDeckUpgradeSelectScreen.ScenePath),
+            GridSelection.Screen.DeckTransform =>
+                Instantiate<NDeckTransformSelectScreen>(NDeckTransformSelectScreen.ScenePath),
+            GridSelection.Screen.DeckEnchant =>
+                Instantiate<NDeckEnchantSelectScreen>(NDeckEnchantSelectScreen.ScenePath),
+            _ => Instantiate<NDeckCardSelectScreen>(NDeckCardSelectScreen.ScenePath)
+        };
+
+        _grid = screen.GetNode<NCardGrid>("%CardGrid");
+        _grid.InsetForTopBar();
+        foreach (string part in gridPartsToHide)
+        {
+            if (screen.GetNodeOrNull<CanvasItem>(part) is { } node)
+            {
+                node.Visible = false;
+            }
+        }
+
+        if (screen.GetNodeOrNull<RichTextLabel>("%BottomLabel") is { } prompt)
+        {
+            prompt.Text = choice.Screen == GridSelection.Screen.DeckEnchant
+                ? $"[center]{choice.Prompt}[/center]"
+                : choice.Prompt;
+        }
+        (screen.GetNodeOrNull<NClickableControl>("%Confirm") ?? screen.GetNodeOrNull<NClickableControl>("Confirm"))
+            ?.Disable();
+        if (screen.GetNodeOrNull<NClickableControl>("%Close") is { } close)
+        {
+            if (choice.Cancelable)
+            {
+                close.Enable();
+            }
+            else
+            {
+                close.Disable();
+            }
+        }
+        if (screen.GetNodeOrNull<MegaLabel>("%ViewUpgradesLabel") is { } viewUpgrades)
+        {
+            viewUpgrades.SetTextAutoSize(new LocString("card_selection", "VIEW_UPGRADES").GetFormattedText());
+        }
+        if (choice.Enchantment is { } enchantment)
+        {
+            screen.GetNodeOrNull<MegaLabel>("%EnchantmentTitle")?.SetTextAutoSize(
+                enchantment.Title.GetFormattedText());
+            if (screen.GetNodeOrNull<RichTextLabel>("%EnchantmentDescription") is { } description)
+            {
+                description.Text = enchantment.DynamicDescription.GetFormattedText();
+            }
+            if (screen.GetNodeOrNull<TextureRect>("%EnchantmentIcon") is { } icon)
+            {
+                icon.Texture = enchantment.Icon;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Keeps the grid in step with theirs: the same cards (a combat pile can change under it), the ones they have
+    /// marked lit up the way their screen lights them, and scrolled to where they are. Their scroll is fed to the grid
+    /// as its target, so it glides there as it would for them, and a turn of our own wheel is undone next frame.
+    /// </summary>
+    private void FillGrid(GridSelection.Choice choice)
+    {
+        if (_grid == null || _player == null)
+        {
+            return;
+        }
+        IReadOnlyList<CardModel> options = choice.Options();
+        if (!options.SequenceEqual(_shownOptions))
+        {
+            _grid.SetCards(options, choice.PileType, choice.Sorting);
+            _shownOptions.Clear();
+            _shownOptions.AddRange(options);
+            _shownMarked.Clear();
+        }
+
+        GridSelection.Progress progress = GridSelection.GetProgress(_player);
+        HashSet<CardModel> marked = progress.Marked
+            .Where(i => i >= 0 && i < options.Count)
+            .Select(i => options[i])
+            .ToHashSet();
+        foreach (CardModel card in _shownMarked.Except(marked).ToList())
+        {
+            _grid.UnhighlightCard(card);
+            _shownMarked.Remove(card);
+        }
+        foreach (CardModel card in marked.Except(_shownMarked).ToList())
+        {
+            _grid.HighlightCard(card);
+            _shownMarked.Add(card);
+        }
+        _grid._targetDrag = progress.Scroll;
     }
 
     private static void SetUpBanner(NCommonBanner banner)
@@ -652,6 +794,9 @@ public partial class NSpectateScreenMirror : Control
         _rug = null;
         _shopEntries.Clear();
         _shownSold.Clear();
+        _grid = null;
+        _shownOptions.Clear();
+        _shownMarked.Clear();
     }
 
     private void ClearRewards()

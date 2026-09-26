@@ -106,6 +106,7 @@ public partial class NSpectateRunUi : Control
         this.AddChildSafely(NSpectatePeekBar.Create(_run));
 
         this.AddChildSafely(NSpectateShopSync.Create());
+        this.AddChildSafely(NSpectateGridSync.Create());
     }
 
     public override void _EnterTree()
