@@ -172,16 +172,13 @@ public partial class NSpectateRunUi : Control
 
     /// <summary>
     /// Watching somebody (for good or just for a look) puts our map away, so what is on screen is their view and not
-    /// our map with theirs behind it. Unless they are on the map too: it is shared, so ours is exactly what they see.
-    /// Opening the map ourselves while watching ends the watching first (<see cref="StopOnOwnScreen" />), so this
-    /// never fights with it.
+    /// our map with theirs behind it. Nobody on the map can be watched, so they are never on it themselves. Opening the
+    /// map ourselves while watching ends the watching first (<see cref="StopOnOwnScreen" />), so this never fights with
+    /// it.
     /// </summary>
     private static void CloseMapWhileWatching()
     {
-        Player? viewed = SpectateController.Viewed;
-        PeerInputSynchronizer? sync = RunManager.Instance.InputSynchronizer;
-        if (viewed == null || sync == null || NMapScreen.Instance is not { IsOpen: true } map
-            || sync.GetScreenType(viewed.NetId) == NetScreenType.Map)
+        if (SpectateController.Viewed == null || NMapScreen.Instance is not { IsOpen: true } map)
         {
             return;
         }
@@ -212,6 +209,7 @@ public partial class NSpectateRunUi : Control
     {
         base._Process(delta);
         StopOnOwnScreen();
+        SpectateController.StopWatchingPlayersOnMap();
         CloseMapWhileWatching();
         // Which screen the teammate is on changes without any event of ours, so the label is re-read every frame.
         Player? viewed = SpectateController.Viewed;

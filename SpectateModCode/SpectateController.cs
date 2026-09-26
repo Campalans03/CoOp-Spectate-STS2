@@ -4,6 +4,7 @@ using System.Linq;
 using MegaCrit.Sts2.Core.Combat;
 using MegaCrit.Sts2.Core.Context;
 using MegaCrit.Sts2.Core.Entities.Creatures;
+using MegaCrit.Sts2.Core.Entities.Multiplayer;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Platform;
 using MegaCrit.Sts2.Core.Rooms;
@@ -154,12 +155,13 @@ public static class SpectateController
     }
 
     /// <summary>
-    /// Can this player be watched at all? Anyone else in the run, and in combat only while they are alive and still
-    /// taking part in it.
+    /// Can this player be watched at all? Anyone else in the run who isn't on the map, and in combat only while they
+    /// are alive and still taking part in it.
     /// </summary>
     public static bool CanSpectate(Player? player)
     {
-        if (player == null || _run == null || LocalContext.IsMe(player) || !_run.Players.Contains(player))
+        if (player == null || _run == null || LocalContext.IsMe(player) || !_run.Players.Contains(player)
+            || IsOnMap(player))
         {
             return false;
         }
@@ -167,6 +169,31 @@ public static class SpectateController
                || (player.PlayerCombatState != null
                    && player.Creature is { IsAlive: true }
                    && _combat.Players.Contains(player));
+    }
+
+    /// <summary>
+    /// The map is shared, so there is nothing of theirs to see there: everybody's map is the same one.
+    /// </summary>
+    public static bool IsOnMap(Player player)
+    {
+        return RunManager.Instance.InputSynchronizer?.GetScreenType(player.NetId) == NetScreenType.Map;
+    }
+
+    /// <summary>
+    /// Nothing tells us when a teammate opens the map, so this is polled: whoever we are watching or peeking at who
+    /// has gone to the map stops being watched.
+    /// </summary>
+    public static void StopWatchingPlayersOnMap()
+    {
+        if (Peek != null && !LocalContext.IsMe(Peek) && IsOnMap(Peek))
+        {
+            SetPeek(null);
+        }
+        if (Target != null && IsOnMap(Target))
+        {
+            MainFile.Logger.Info($"Stopped spectating {GetDisplayName(Target)}: they went to the map");
+            Stop();
+        }
     }
 
     /// <summary>Additionally requires that the teammate still has a turn to watch.</summary>
