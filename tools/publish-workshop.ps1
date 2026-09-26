@@ -12,7 +12,8 @@
 
     The item id lives in tools\workshop-item-id.txt. While that file is missing the upload creates a new item; once
     it holds an id, every run updates that item instead. Title, description and visibility are only sent when the
-    item is created, so edits made on the Workshop page afterwards are never overwritten.
+    item is created, so edits made on the Workshop page afterwards are never overwritten. Pass -UpdateDescription to
+    send the title and description on an update too, when the text in this script should replace the page's.
 
     SteamCMD asks for your password and Steam Guard code on the first login and remembers them afterwards.
 
@@ -21,6 +22,9 @@
 
 .EXAMPLE
     .\tools\publish-workshop.ps1 -Username myaccount -ChangeNote "Fixed the star counter"
+
+.EXAMPLE
+    .\tools\publish-workshop.ps1 -Username myaccount -ChangeNote "Spectate the whole run" -UpdateDescription
 #>
 [CmdletBinding()]
 param(
@@ -41,7 +45,11 @@ param(
     [switch] $StageOnly,
 
     # Use whatever is already in the mods folder instead of rebuilding.
-    [switch] $SkipBuild
+    [switch] $SkipBuild,
+
+    # Also send the title and the description below when updating an existing item. Off by default so edits made on
+    # the Workshop page aren't overwritten; pass it when the text here is the one that should be on the page.
+    [switch] $UpdateDescription
 )
 
 $ErrorActionPreference = 'Stop'
@@ -136,34 +144,36 @@ function Format-VdfValue([string] $value) {
 }
 
 $description = @"
-Co-op Spectate lets you watch your teammates' turns as if you were sitting next to them: their hand, their piles, their energy, and every card they pick up and aim, live.
+Co-op Spectate lets you watch your teammates as if you were sitting next to them, for the whole run: their turn in combat, their rewards, the shop, events, and every card choice in between, live.
 
 [h2]What you see[/h2]
 [list]
-[*][b]Their hand[/b], in place of yours, with the card they're hovering raised just like on their screen.
-[*][b]Every play as it happens[/b]: the card they pick up, the targeting arrow and the reticle on the enemy they aim at, with damage recalculated against that target.
-[*][b]Their whole combat UI[/b]: draw, discard and exhaust piles, energy, stars, relics and potions.
-[*][b]Your own energy[/b] stays visible as a small orb beside theirs, so you know what you'll have left.
+[*][b]Their combat[/b]: their hand in place of yours, the card they're hovering raised, every card they pick up and aim with the targeting arrow and reticle, and their piles, energy and stars.
+[*][b]Their choices[/b]: discarding or exhausting from their hand, picking one of three cards, upgrading, removing or transforming cards from their deck, choosing from their draw or discard pile. You see the cards they mark before they confirm.
+[*][b]Their screens outside combat[/b]: their rewards, their card rewards, their shop with its prices and what they've already bought, and their own events, Neow included.
+[*][b]Their top bar[/b]: relics, potions, gold, HP and portrait.
+[*][b]Their cursor[/b] on top of all of it, so you can see what they're pointing at.
 [/list]
+Everything you see is the game's own screen, filled with their cards, so it looks exactly like theirs.
 
 [h2]How to spectate[/h2]
 [list]
+[*][b]Player boxes[/b] on the right edge of the screen, there for the whole run. [b]Click[/b] one to watch that player until you click again (click your own to come back). [b]Rest your mouse[/b] on one to look at their screen only while it stays there.
 [*][b]End your turn[/b] and you automatically follow a teammate who is still playing.
-[*][b]Click a teammate[/b] (or the eye next to their icon in the party list) to watch them any time. Click yourself to come back.
-[*][b]Peek boxes[/b] on the right edge of the screen: rest your mouse on one to glance at that player's hand without switching.
+[*][b]Click a teammate[/b] in combat, or the eye next to their icon in the party list.
 [*][b]Died?[/b] You keep watching whoever is still alive instead of staring at your corpse.
-[*]Hover their cards with your own mouse to read them at your own pace.
+[*]Your own turn, your own card choices, and opening your own map or deck always bring you back to your screen.
 [/list]
 
 [h2]Draw on their screen[/h2]
-While spectating, [b]hold right click and drag[/b] to draw on your teammate's screen, just like on the map. Point at the enemy to hit, the card to play, or the End Turn button.
+While spectating, [b]hold right click and drag[/b] to draw on your teammate's screen, anywhere: in combat, in the shop, on their rewards. Point at the enemy to hit, the card to take, or the relic to buy.
 
 Every player draws in their own colour, and the lines fade away on their own a moment later.
 
 [h2]Good to know[/h2]
 [list]
-[*][b]Look, don't touch[/b]: nothing you see can be played or used. Your teammate stays in full control of their turn.
-[*][b]Doesn't affect gameplay[/b]: you can join lobbies with players who don't have it. Spectating works on your own; drawing is only seen by teammates who also have the mod.
+[*][b]Look, don't touch[/b]: nothing you see can be played, bought or picked. Your teammate stays in full control.
+[*][b]Doesn't affect gameplay[/b]: you can join lobbies with players who don't have it, and most of the spectating works on your own. A few things only come through when your teammate has the mod too: drawing, the cards they mark before confirming, their shop, and the pack they open with Scroll Boxes.
 [*][b]Fully configurable[/b]: every feature can be turned on or off in the mod settings.
 [*]Requires [url=https://steamcommunity.com/sharedfiles/filedetails/?id=3737335127]BaseLib[/url].
 [/list]
@@ -180,6 +190,8 @@ $lines = @(
 )
 if ($isNew) {
     $lines += "  `"visibility`" `"$Visibility`""
+}
+if ($isNew -or $UpdateDescription) {
     $lines += "  `"title`" `"Co-op Spectate`""
     $lines += "  `"description`" $(Format-VdfValue $description)"
 }
