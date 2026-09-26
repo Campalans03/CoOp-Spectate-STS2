@@ -44,6 +44,15 @@
   "SPECTATEMOD-REPLACE_GOLD_AND_HP.title": "Replace gold, HP and portrait",
   "SPECTATEMOD-REPLACE_GOLD_AND_HP.description": "Show the spectated teammate's gold, hit points and character portrait in the top bar instead of your own.",
 
+  "SPECTATEMOD-REPLACE_HEALTH_BARS.title": "Show their health bars as yours",
+  "SPECTATEMOD-REPLACE_HEALTH_BARS.description": "Keep the watched teammate's health bar, and their pets' like Osty, up all the time the way yours normally is. Yours only shows when you point at your character.",
+
+  "SPECTATEMOD-SWAP_COMBAT_POSITIONS.title": "Move them to your spot",
+  "SPECTATEMOD-SWAP_COMBAT_POSITIONS.description": "Slide the watched teammate to your place at the front of the board, and you back among the others.",
+
+  "SPECTATEMOD-INTENTS_FOR_WATCHED.title": "Enemy intents against them",
+  "SPECTATEMOD-INTENTS_FOR_WATCHED.description": "Show enemy attacks with the damage the watched teammate would take, counting their own powers like Vulnerable, instead of yours.",
+
   "SPECTATEMOD-MIRROR_HOVER.title": "Mirror card hover",
   "SPECTATEMOD-MIRROR_HOVER.description": "Raise the card the teammate is inspecting.",
 

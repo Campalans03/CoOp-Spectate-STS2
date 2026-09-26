@@ -20,6 +20,7 @@ public static class CombatUiPatches
         {
             SpectateController.AttachToCombat(state);
             SpectateView.Install(__instance, state);
+            SpectateBoard.Install(state);
         }
         catch (Exception e)
         {
@@ -65,6 +66,15 @@ public static class CombatUiPatches
         catch (Exception e)
         {
             MainFile.Logger.Error($"Failed to tear down the spectate view: {e}");
+        }
+
+        try
+        {
+            SpectateBoard.Uninstall();
+        }
+        catch (Exception e)
+        {
+            MainFile.Logger.Error($"Failed to tear down the spectated board: {e}");
         }
     }
 }

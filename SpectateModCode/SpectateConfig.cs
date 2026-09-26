@@ -71,6 +71,15 @@ public class SpectateConfig : SimpleModConfig
     /// <summary>Show the watched player's gold, hit points and portrait in the top bar instead of ours.</summary>
     public static bool ReplaceGoldAndHp { get; set; } = true;
 
+    /// <summary>Keep the watched player's health bar, and their pets', up all the time the way ours normally is.</summary>
+    public static bool ReplaceHealthBars { get; set; } = true;
+
+    /// <summary>Slide the watched player into our spot at the front of the board, and us back among the others.</summary>
+    public static bool SwapCombatPositions { get; set; } = true;
+
+    /// <summary>Show enemy attack intents with the damage the watched player would take, not us.</summary>
+    public static bool IntentsForWatched { get; set; } = true;
+
     public static bool MirrorHover { get; set; } = true;
 
     /// <summary>Let our own mouse lift the teammate's cards so we can read them without waiting for them to hover.</summary>
