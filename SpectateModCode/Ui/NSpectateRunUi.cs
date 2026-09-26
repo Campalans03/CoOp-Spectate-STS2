@@ -4,6 +4,7 @@ using Godot;
 using MegaCrit.Sts2.Core.Entities.Multiplayer;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Helpers;
+using MegaCrit.Sts2.Core.Map;
 using MegaCrit.Sts2.Core.Multiplayer.Game.PeerInput;
 using MegaCrit.Sts2.Core.Nodes.CommonUi;
 using MegaCrit.Sts2.Core.Nodes.Screens.Map;
@@ -13,12 +14,12 @@ using MegaCrit.Sts2.Core.Runs;
 namespace SpectateMod.SpectateModCode.Ui;
 
 /// <summary>
-/// The half of spectating that lives for the whole run, from the start of a multiplayer run to its end: the peek
+/// The half of spectating that lives for the whole run, from the start of a multiplayer run to its end: the player
 /// boxes, the "Spectating" label and red border, and the relics and potions in the top bar. Inside combat,
 /// <see cref="SpectateView" /> adds the hand and the combat UI on top.
 /// <para>
 /// It sits last in the run's global UI, so it draws over rooms, overlays and the map alike. It never takes the mouse
-/// itself; only the peek boxes do.
+/// itself; only the player boxes do.
 /// </para>
 /// </summary>
 public partial class NSpectateRunUi : Control
@@ -36,6 +37,12 @@ public partial class NSpectateRunUi : Control
     private NSpectatePotionBelt? _potionBelt;
     private NSpectateScreenMirror? _mirror;
     private NetScreenType _localScreen;
+
+    /// <summary>Set when we put our own map away to show somebody else, so it comes back when we do.</summary>
+    private bool _reopenMap;
+
+    /// <summary>Where we were when the map was put away; it only comes back if we are still there.</summary>
+    private MapCoord? _reopenMapAt;
 
     public static NSpectateRunUi Create(IRunState run)
     {
@@ -137,7 +144,7 @@ public partial class NSpectateRunUi : Control
     public override void _ExitTree()
     {
         base._ExitTree();
-        // Detach while still listening: letting go of the target and the peek is what puts our relics and potions back.
+        // Detach while still listening: letting go of the target is what puts our relics and potions back.
         try
         {
             SpectateController.DetachFromRun();
@@ -174,15 +181,35 @@ public partial class NSpectateRunUi : Control
     /// Watching somebody (for good or just for a look) puts our map away, so what is on screen is their view and not
     /// our map with theirs behind it. Nobody on the map can be watched, so they are never on it themselves. Opening the
     /// map ourselves while watching ends the watching first (<see cref="StopOnOwnScreen" />), so this never fights with
-    /// it.
+    /// it. The map comes back once we are looking at our own screen again (<see cref="ReopenMap" />).
     /// </summary>
-    private static void CloseMapWhileWatching()
+    private void CloseMapWhileWatching()
     {
         if (SpectateController.Viewed == null || NMapScreen.Instance is not { IsOpen: true } map)
         {
             return;
         }
         map.Close();
+        _reopenMap = true;
+        _reopenMapAt = _run.CurrentMapCoord;
+    }
+
+    /// <summary>
+    /// Puts back the map <see cref="CloseMapWhileWatching" /> put away. Opened as if from the top bar, so it skips the
+    /// start-of-act animation and just shows the map where we left it.
+    /// </summary>
+    private void ReopenMap()
+    {
+        if (!_reopenMap)
+        {
+            return;
+        }
+        _reopenMap = false;
+        NMapScreen? map = NMapScreen.Instance;
+        if (map != null && GodotObject.IsInstanceValid(map) && !map.IsOpen && _run.CurrentMapCoord == _reopenMapAt)
+        {
+            map.Open(isOpenedFromTopBar: true);
+        }
     }
 
     private void StopOnOwnScreen()
@@ -227,6 +254,10 @@ public partial class NSpectateRunUi : Control
 
     private void OnViewChanged(Player? viewed)
     {
+        if (viewed == null)
+        {
+            ReopenMap();
+        }
         ApplyRelics(viewed);
         ApplyPotions(viewed);
         ApplyTopBar(viewed);
@@ -285,8 +316,7 @@ public partial class NSpectateRunUi : Control
 
     private string Describe(Player viewed)
     {
-        bool peeking = SpectateController.Peek == viewed && SpectateController.Target != viewed;
-        string text = $"{(peeking ? "Peeking at" : "Spectating")} {SpectateController.GetDisplayName(viewed)}";
+        string text = $"Spectating {SpectateController.GetDisplayName(viewed)}";
         string? where = DescribeScreen(viewed);
         return where == null ? text : $"{text} - {where}";
     }
