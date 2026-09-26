@@ -42,14 +42,10 @@ public class SpectateConfig : SimpleModConfig
     public static int PreferredTeammateSlot { get; set; }
 
     /// <summary>
-    /// Small player boxes down the right edge of the screen, for the whole run: click one to spectate that player, or rest
-    /// the mouse on it to see their screen only for as long as it stays there.
+    /// Small player boxes down the right edge of the screen, for the whole run: click one to spectate that player, click it
+    /// again or click our own to come back.
     /// </summary>
     public static bool ShowHandPeekBar { get; set; } = true;
-
-    /// <summary>Seconds the mouse has to rest on a peek box before the view switches. 0 switches on contact.</summary>
-    [ConfigSlider(0.0, 1.0, 0.05, Format = "{0:0.00}s")]
-    public static double PeekHoverDelay { get; set; } = 0.1;
 
     /// <summary>
     /// While spectating, hold the right mouse button and drag to draw on the teammate's screen.

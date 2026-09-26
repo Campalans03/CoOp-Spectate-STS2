@@ -49,7 +49,7 @@ public static class SpectateBoard
         LayoutOwner = _localPlayer;
         SpectateController.ViewChanged += OnViewChanged;
 
-        // A peek may already be held across the start of combat; show it without making the board slide in.
+        // Apply whatever is on show already, without making the board slide in.
         Apply(SpectateController.Viewed, animate: false);
     }
 

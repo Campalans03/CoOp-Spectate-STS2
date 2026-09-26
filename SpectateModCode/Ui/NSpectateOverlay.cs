@@ -41,7 +41,7 @@ public partial class NSpectateOverlay : Control
     public override void _Process(double delta)
     {
         base._Process(delta);
-        // Whoever is on show, peeked or spectated. The arrow lives under the target manager rather than under us, so it
+        // Whoever is being spectated. The arrow lives under the target manager rather than under us, so it
         // is ours to show and hide.
         Player? target = SpectateView.VisualPlayer;
         PeerInputSynchronizer? sync = RunManager.Instance.InputSynchronizer;

@@ -158,7 +158,7 @@ Everything you see is the game's own screen, filled with their cards, so it look
 
 [h2]How to spectate[/h2]
 [list]
-[*][b]Player boxes[/b] on the right edge of the screen, there for the whole run. [b]Click[/b] one to watch that player until you click again (click your own to come back). [b]Rest your mouse[/b] on one to look at their screen only while it stays there.
+[*][b]Player boxes[/b] on the right edge of the screen, there for the whole run. [b]Click[/b] one to watch that player until you click again (click your own to come back).
 [*][b]End your turn[/b] and you automatically follow a teammate who is still playing.
 [*][b]Click a teammate[/b] in combat, or the eye next to their icon in the party list.
 [*][b]Died?[/b] You keep watching whoever is still alive instead of staring at your corpse.

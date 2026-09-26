@@ -21,10 +21,7 @@
   "SPECTATEMOD-PREFERRED_TEAMMATE_SLOT.description": "Teammate to prefer for auto spectate. 0 picks the first eligible teammate. If the preferred teammate is dead or has ended their turn, another eligible teammate is used.",
 
   "SPECTATEMOD-SHOW_HAND_PEEK_BAR.title": "Player boxes on the right edge",
-  "SPECTATEMOD-SHOW_HAND_PEEK_BAR.description": "Show a small box per player down the right edge of the screen, for the whole run. Click one to spectate that player until you click again, or click your own to come back. Rest the mouse on one for a moment to see that player only until you move away.",
-
-  "SPECTATEMOD-PEEK_HOVER_DELAY.title": "Peek hover delay",
-  "SPECTATEMOD-PEEK_HOVER_DELAY.description": "How long, in seconds, the mouse has to rest on a player box before that player is shown. 0 shows them immediately.",
+  "SPECTATEMOD-SHOW_HAND_PEEK_BAR.description": "Show a small box per player down the right edge of the screen, for the whole run. Click one to spectate that player until you click again, or click your own to come back.",
 
   "SPECTATEMOD-DRAW_ON_CLICK.title": "Draw on their screen",
   "SPECTATEMOD-DRAW_ON_CLICK.description": "While spectating, hold the right mouse button and drag to draw on the teammate's screen. Anyone else watching them sees it too, and the line wipes itself away a moment later. Both of you need this mod.",

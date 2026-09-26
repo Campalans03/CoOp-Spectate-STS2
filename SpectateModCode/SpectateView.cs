@@ -14,7 +14,7 @@ namespace SpectateMod.SpectateModCode;
 /// <summary>
 /// Applies the spectate state to the combat view: swaps the hand and re-points the combat UI at the watched player.
 /// Every swap is reversible, and the whole apply step is guarded so a failure downgrades the feature instead of
-/// breaking combat. What outlives combat (relics, potions, the label, the peek boxes) is <see cref="NSpectateRunUi" />'s.
+/// breaking combat. What outlives combat (relics, potions, the label, the player boxes) is <see cref="NSpectateRunUi" />'s.
 /// </summary>
 public static class SpectateView
 {
@@ -68,7 +68,7 @@ public static class SpectateView
         SpectateController.ViewChanged += OnViewChanged;
         RunManager.Instance.HoveredModelTracker.HoverChanged += OnHoverChanged;
 
-        // Somebody may already be on show (a peek held across the start of combat), so apply it straight away.
+        // Apply whatever is on show straight away rather than waiting for the next change.
         OnViewChanged(SpectateController.Viewed);
     }
 
@@ -125,7 +125,6 @@ public static class SpectateView
             MainFile.Logger.Error($"Failed to apply spectate view: {e}");
             try
             {
-                SpectateController.SetPeek(null);
                 SpectateController.Stop();
             }
             catch (Exception)
@@ -136,15 +135,14 @@ public static class SpectateView
     }
 
     /// <summary>
-    /// Whose hand is on screen. A peek always shows the hand, since that is what it is there for; spectating only
-    /// does with <see cref="SpectateConfig.ReplaceHand" /> on. Null means our own.
+    /// Whose hand is on screen: the watched player's with <see cref="SpectateConfig.ReplaceHand" /> on. Null means our
+    /// own.
     /// </summary>
     public static Player? HandPlayer
     {
         get
         {
-            Player? player = SpectateController.Peek
-                             ?? (SpectateConfig.ReplaceHand ? SpectateController.Target : null);
+            Player? player = SpectateConfig.ReplaceHand ? SpectateController.Target : null;
             return player == null || player == _localPlayer ? null : player;
         }
     }

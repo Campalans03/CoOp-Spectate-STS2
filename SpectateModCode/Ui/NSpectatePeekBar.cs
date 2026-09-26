@@ -9,7 +9,7 @@ namespace SpectateMod.SpectateModCode.Ui;
 
 /// <summary>
 /// A column of small player boxes against the right edge of the screen, there for the whole run. Click one to watch
-/// that player, or rest the mouse on it for a look that lasts until it moves away. See <see cref="NSpectatePeekSlot" />.
+/// that player until it is clicked again. See <see cref="NSpectatePeekSlot" />.
 /// </summary>
 public partial class NSpectatePeekBar : VBoxContainer
 {
@@ -45,15 +45,7 @@ public partial class NSpectatePeekBar : VBoxContainer
         bool show = SpectateConfig.ShowHandPeekBar
                     && SpectateController.IsActive
                     && NCapstoneContainer.Instance is not { InUse: true };
-        if (show != Visible)
-        {
-            Visible = show;
-            if (!show)
-            {
-                // Hiding a Control under the mouse never fires MouseExited, so let go of the peek ourselves.
-                SpectateController.SetPeek(null);
-            }
-        }
+        Visible = show;
         if (show)
         {
             HugRightEdge();

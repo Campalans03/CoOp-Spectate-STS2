@@ -67,7 +67,6 @@ public partial class NSpectateSelectionSync : Node
         {
             // Something made us pick from our own hand while another was covering it. The choice needs our real hand,
             // so drop the view right away.
-            SpectateController.SetPeek(null);
             SpectateController.Stop();
         }
 

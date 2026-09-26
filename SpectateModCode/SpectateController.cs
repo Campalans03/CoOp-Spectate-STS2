@@ -31,13 +31,7 @@ public static class SpectateController
     /// <summary>The teammate picked to watch, or null when we are looking at our own screen.</summary>
     public static Player? Target { get; private set; }
 
-    /// <summary>
-    /// The player a peek box is showing while the mouse rests on it. Wins over <see cref="Target" /> for as long as it
-    /// lasts; our own player here means "show me my own screen for a moment".
-    /// </summary>
-    public static Player? Peek { get; private set; }
-
-    /// <summary>Whose screen is on show right now: the peek if there is one, else the target. Null means our own.</summary>
+    /// <summary>Whose screen is on show right now: the target, or null for our own.</summary>
     public static Player? Viewed => _viewed;
 
     public static bool IsSpectating => Target != null;
@@ -56,7 +50,7 @@ public static class SpectateController
     /// <summary>Raised after <see cref="Target"/> changes. The argument is the new target (null when stopping).</summary>
     public static event Action<Player?>? TargetChanged;
 
-    /// <summary>Raised after <see cref="Viewed"/> changes, whether through the target or a peek.</summary>
+    /// <summary>Raised after <see cref="Viewed"/> changes, whenever the target does.</summary>
     public static event Action<Player?>? ViewChanged;
 
     public static void AttachToRun(IRunState run)
@@ -74,7 +68,6 @@ public static class SpectateController
     {
         DetachFromCombat();
         Stop();
-        SetPeek(null);
         _run = null;
     }
 
@@ -180,15 +173,11 @@ public static class SpectateController
     }
 
     /// <summary>
-    /// Nothing tells us when a teammate opens the map, so this is polled: whoever we are watching or peeking at who
-    /// has gone to the map stops being watched.
+    /// Nothing tells us when a teammate opens the map, so this is polled: whoever we are watching who has gone to the
+    /// map stops being watched.
     /// </summary>
     public static void StopWatchingPlayersOnMap()
     {
-        if (Peek != null && !LocalContext.IsMe(Peek) && IsOnMap(Peek))
-        {
-            SetPeek(null);
-        }
         if (Target != null && IsOnMap(Target))
         {
             MainFile.Logger.Info($"Stopped spectating {GetDisplayName(Target)}: they went to the map");
@@ -256,17 +245,6 @@ public static class SpectateController
         Raise();
     }
 
-    /// <summary>Starts or ends a peek. Pass null when the mouse leaves the box.</summary>
-    public static void SetPeek(Player? player)
-    {
-        if (player == Peek)
-        {
-            return;
-        }
-        Peek = player;
-        RaiseViewIfChanged();
-    }
-
     /// <summary>Picks the best teammate to auto-spectate, honouring the preferred-slot option.</summary>
     public static Player? PickAutoTarget()
     {
@@ -306,7 +284,7 @@ public static class SpectateController
 
     private static void RaiseViewIfChanged()
     {
-        Player? shown = Peek ?? Target;
+        Player? shown = Target;
         if (shown != null && LocalContext.IsMe(shown))
         {
             shown = null;
