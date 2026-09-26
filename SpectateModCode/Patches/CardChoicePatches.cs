@@ -67,6 +67,19 @@ public static class CardChoicePatches
         });
     }
 
+    /// <summary>Scroll Boxes: a few packs of cards, of which they keep one.</summary>
+    [HarmonyPostfix]
+    [HarmonyPatch(typeof(CardSelectCmd), nameof(CardSelectCmd.FromChooseABundleScreen))]
+    public static void AfterChooseABundle(Player player, IReadOnlyList<IReadOnlyList<CardModel>> bundles,
+        Task<IEnumerable<CardModel>> __result)
+    {
+        Track(player, __result, new CardChoice.Choice
+        {
+            Kind = CardChoice.Kind.Bundle,
+            Bundles = bundles
+        });
+    }
+
     private static void Track(Player player, Task task, CardChoice.Choice choice)
     {
         try

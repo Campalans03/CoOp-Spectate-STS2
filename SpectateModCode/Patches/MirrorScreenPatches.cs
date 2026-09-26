@@ -68,6 +68,14 @@ public static class MirrorScreenPatches
     [HarmonyPatch(typeof(NChooseACardSelectionScreen), nameof(NChooseACardSelectionScreen._ExitTree))]
     public static bool ChooseACardExitTree(NChooseACardSelectionScreen __instance) => IsLive(__instance);
 
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(NChooseABundleSelectionScreen), nameof(NChooseABundleSelectionScreen._Ready))]
+    public static bool BundleReady(NChooseABundleSelectionScreen __instance) => IsLive(__instance);
+
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(NChooseABundleSelectionScreen), nameof(NChooseABundleSelectionScreen._ExitTree))]
+    public static bool BundleExitTree(NChooseABundleSelectionScreen __instance) => IsLive(__instance);
+
     // The card grid screens. Each overrides _Ready on its own; _ExitTree comes from the shared base unless noted.
 
     [HarmonyPrefix]

@@ -18,7 +18,10 @@ public static class CardChoice
         Reward,
 
         /// <summary>NChooseACardSelectionScreen: in combat, with at most a skip button.</summary>
-        ChooseACard
+        ChooseACard,
+
+        /// <summary>NChooseABundleSelectionScreen: a few packs of cards, of which one is kept (Scroll Boxes).</summary>
+        Bundle
     }
 
     /// <summary>One of the buttons under a card reward, as NCardRewardAlternativeButton.Create takes it.</summary>
@@ -28,8 +31,11 @@ public static class CardChoice
     {
         public required Kind Kind { get; init; }
 
-        /// <summary>Read live: a reroll swaps the cards of a reward in place.</summary>
-        public required Func<IReadOnlyList<CardModel>> Cards { get; init; }
+        /// <summary>Read live: a reroll swaps the cards of a reward in place. Empty for <see cref="Kind.Bundle" />.</summary>
+        public Func<IReadOnlyList<CardModel>> Cards { get; init; } = Array.Empty<CardModel>;
+
+        /// <summary>Only for <see cref="Kind.Bundle" />: the packs on offer, in the order the screen lines them up.</summary>
+        public IReadOnlyList<IReadOnlyList<CardModel>> Bundles { get; init; } = Array.Empty<IReadOnlyList<CardModel>>();
 
         /// <summary>Read live for the same reason. Always empty for <see cref="Kind.ChooseACard" />.</summary>
         public Func<IReadOnlyList<Alternative>> Alternatives { get; init; } = Array.Empty<Alternative>;

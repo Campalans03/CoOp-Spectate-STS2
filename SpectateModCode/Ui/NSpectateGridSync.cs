@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Godot;
 using MegaCrit.Sts2.Core.Models;
+using MegaCrit.Sts2.Core.Nodes.Cards;
 using MegaCrit.Sts2.Core.Multiplayer.Game;
 using MegaCrit.Sts2.Core.Nodes.Screens.CardSelection;
 using MegaCrit.Sts2.Core.Nodes.Screens.Overlays;
@@ -118,6 +119,10 @@ public partial class NSpectateGridSync : Node
     /// </summary>
     private static (List<int>, float) ReadLocalGrid()
     {
+        if (NOverlayStack.Instance?.Peek() is NChooseABundleSelectionScreen bundles && GodotObject.IsInstanceValid(bundles))
+        {
+            return (ReadOpenBundle(bundles), 0f);
+        }
         if (NOverlayStack.Instance?.Peek() is not NCardGridSelectionScreen screen || !GodotObject.IsInstanceValid(screen)
             || screen._grid == null || !GodotObject.IsInstanceValid(screen._grid))
         {
@@ -135,6 +140,22 @@ public partial class NSpectateGridSync : Node
             .Order()
             .ToList();
         return (marked, screen._grid._targetDrag);
+    }
+
+    /// <summary>
+    /// The pack picker has no grid, but it has the same "what have they picked so far" to share: the pack they have
+    /// opened to look at, which fills the screen with its cards until they confirm or back out. It travels as the one
+    /// marked position, in the order the packs are lined up.
+    /// </summary>
+    private static List<int> ReadOpenBundle(NChooseABundleSelectionScreen screen)
+    {
+        NCardBundle? open = screen._selectedBundle;
+        if (open == null || !GodotObject.IsInstanceValid(open) || !screen._bundlePreviewContainer.Visible)
+        {
+            return new List<int>();
+        }
+        int index = screen._bundleRow.GetChildren().IndexOf(open);
+        return index >= 0 ? new List<int> { index } : new List<int>();
     }
 
     private static IEnumerable<CardModel> SelectedCards(NCardGridSelectionScreen screen)

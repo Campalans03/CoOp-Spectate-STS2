@@ -50,6 +50,10 @@ public static class GridSelection
         public EnchantmentModel? Enchantment { get; init; }
     }
 
+    /// <summary>
+    /// Where they are in the grid: the marked positions and the scroll. The pack picker (<see cref="CardChoice.Kind.Bundle" />)
+    /// has no grid but uses the same message, with the pack they have opened as its one marked position.
+    /// </summary>
     public readonly record struct Progress(IReadOnlyList<int> Marked, float Scroll);
 
     private static readonly Dictionary<ulong, Choice> choices = new();

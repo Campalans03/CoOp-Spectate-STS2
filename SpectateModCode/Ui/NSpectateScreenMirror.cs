@@ -61,7 +61,8 @@ public partial class NSpectateScreenMirror : Control
         ChooseCards,
         Shop,
         Grid,
-        Event
+        Event,
+        Bundles
     }
 
     private const string merchantInventoryScene = "res://scenes/merchant/merchant_inventory.tscn";
@@ -100,6 +101,10 @@ public partial class NSpectateScreenMirror : Control
 
     /// <summary>An event whose layout we found we can't copy, so it isn't tried again every frame.</summary>
     private EventModel? _unsupportedEvent;
+    private Control? _bundleRow;
+    private Control? _bundlePreview;
+    private Control? _bundlePreviewCards;
+    private int _shownBundle = -1;
     private NMerchantInventory? _rug;
     private List<MerchantEntry> _shopEntries = new();
     private readonly HashSet<NMerchantSlot> _shownSold = new();
@@ -217,6 +222,9 @@ public partial class NSpectateScreenMirror : Control
                 case RewardsSet rewards:
                     FillRewards(rewards);
                     break;
+                case CardChoice.Choice { Kind: CardChoice.Kind.Bundle } bundles:
+                    FillBundles(bundles);
+                    break;
                 case CardChoice.Choice choice:
                     FillCards(choice);
                     break;
@@ -252,7 +260,13 @@ public partial class NSpectateScreenMirror : Control
     {
         if (CardChoice.Get(player) is { } choice)
         {
-            return (choice.Kind == CardChoice.Kind.Reward ? Mode.RewardCards : Mode.ChooseCards, choice);
+            Mode mode = choice.Kind switch
+            {
+                CardChoice.Kind.Reward => Mode.RewardCards,
+                CardChoice.Kind.Bundle => Mode.Bundles,
+                _ => Mode.ChooseCards
+            };
+            return (mode, choice);
         }
         if (GridSelection.GetChoice(player) is { } grid)
         {
@@ -408,6 +422,9 @@ public partial class NSpectateScreenMirror : Control
                 break;
             case Mode.Grid:
                 OpenGrid((GridSelection.Choice)_source!);
+                break;
+            case Mode.Bundles:
+                OpenBundles((CardChoice.Choice)_source!);
                 break;
             case Mode.Event:
                 if (!OpenEventLayout((EventModel)_source!))
@@ -712,6 +729,100 @@ public partial class NSpectateScreenMirror : Control
         }
     }
 
+    /// <summary>Distance between packs, and between the cards of an opened pack (NChooseABundleSelectionScreen).</summary>
+    private const float bundleSpacing = 400f;
+
+    /// <summary>
+    /// The pack picker, laid out as its own _Ready lays it out: the packs in a row under the banner, the preview of an
+    /// opened pack hidden and its buttons off until they open one.
+    /// </summary>
+    private void OpenBundles(CardChoice.Choice choice)
+    {
+        NChooseABundleSelectionScreen screen =
+            Instantiate<NChooseABundleSelectionScreen>(NChooseABundleSelectionScreen.ScenePath);
+        NCommonBanner banner = screen.GetNode<NCommonBanner>("Banner");
+        banner.label.SetTextAutoSize(new LocString("gameplay_ui", "CHOOSE_A_PACK").GetRawText());
+        banner.AnimateIn();
+        screen.GetNode<Control>("%PeekButton").Visible = false;
+        screen.GetNode<NClickableControl>("%Cancel").Disable();
+        screen.GetNode<NClickableControl>("%Confirm").Disable();
+        _bundlePreview = screen.GetNode<Control>("%BundlePreviewContainer");
+        _bundlePreview.Visible = false;
+        _bundlePreviewCards = screen.GetNode<Control>("%Cards");
+        _bundleRow = screen.GetNode<Control>("%BundleRow");
+
+        // Its clicks go to a handler the skipped _Ready would have connected, so a pack here only reacts to hovering.
+        Vector2 first = Vector2.Left * (choice.Bundles.Count - 1) * bundleSpacing * 0.5f;
+        for (int i = 0; i < choice.Bundles.Count; i++)
+        {
+            NCardBundle? bundle = NCardBundle.Create(choice.Bundles[i]);
+            if (bundle == null)
+            {
+                continue;
+            }
+            _bundleRow.AddChildSafely(bundle);
+            bundle.Position += first + Vector2.Right * bundleSpacing * i;
+        }
+        _shownBundle = -1;
+    }
+
+    /// <summary>
+    /// Opens the pack they have opened, the way their screen does: the row makes way for that pack's cards laid out
+    /// across the preview, with its buttons up. Which pack comes over the grid message, so only with the mod on their
+    /// side; without it the row just stays up.
+    /// </summary>
+    private void FillBundles(CardChoice.Choice choice)
+    {
+        if (_bundleRow == null || _bundlePreview == null || _bundlePreviewCards == null || _player == null
+            || _screen is not NChooseABundleSelectionScreen screen)
+        {
+            return;
+        }
+        IReadOnlyList<int> marked = GridSelection.GetProgress(_player).Marked;
+        int open = marked.Count > 0 && marked[0] < choice.Bundles.Count ? marked[0] : -1;
+        if (open == _shownBundle)
+        {
+            return;
+        }
+        _shownBundle = open;
+
+        foreach (Node old in _bundlePreviewCards.GetChildren())
+        {
+            NHoverTipSet.Remove((Control)old);
+            old.QueueFreeSafely();
+        }
+        bool previewing = open >= 0;
+        _bundlePreview.Visible = previewing;
+        _bundleRow.Visible = !previewing;
+        NClickableControl cancel = screen.GetNode<NClickableControl>("%Cancel");
+        NClickableControl confirm = screen.GetNode<NClickableControl>("%Confirm");
+        NCommonBanner banner = screen.GetNode<NCommonBanner>("Banner");
+        if (!previewing)
+        {
+            cancel.Disable();
+            confirm.Disable();
+            banner.AnimateIn();
+            return;
+        }
+        cancel.Enable();
+        confirm.Enable();
+        banner.AnimateOut();
+
+        IReadOnlyList<CardModel> cards = choice.Bundles[open];
+        Vector2 first = Vector2.Right * (cards.Count - 1) * bundleSpacing * 0.5f;
+        for (int i = 0; i < cards.Count; i++)
+        {
+            NCard? card = NCard.Create(cards[i]);
+            if (card == null || NPreviewCardHolder.Create(card, showHoverTips: true, scaleOnHover: true) is not { } holder)
+            {
+                continue;
+            }
+            _bundlePreviewCards.AddChildSafely(holder);
+            holder.Position = first + Vector2.Left * bundleSpacing * i;
+            card.UpdateVisuals(PileType.None, CardPreviewMode.Normal);
+        }
+    }
+
     private static void SetUpBanner(NCommonBanner banner)
     {
         banner.label.SetTextAutoSize(new LocString("gameplay_ui", "CHOOSE_CARD_HEADER").GetRawText());
@@ -988,6 +1099,10 @@ public partial class NSpectateScreenMirror : Control
         }
         _eventLayout = null;
         _eventDirty = false;
+        _bundleRow = null;
+        _bundlePreview = null;
+        _bundlePreviewCards = null;
+        _shownBundle = -1;
     }
 
     private void ClearRewards()
