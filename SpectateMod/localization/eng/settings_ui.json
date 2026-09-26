@@ -41,6 +41,9 @@
   "SPECTATEMOD-REPLACE_POTIONS.title": "Replace potions",
   "SPECTATEMOD-REPLACE_POTIONS.description": "Show the spectated teammate's potions in the top bar instead of your own. You can read them, but not use them.",
 
+  "SPECTATEMOD-REPLACE_GOLD_AND_HP.title": "Replace gold, HP and portrait",
+  "SPECTATEMOD-REPLACE_GOLD_AND_HP.description": "Show the spectated teammate's gold, hit points and character portrait in the top bar instead of your own.",
+
   "SPECTATEMOD-MIRROR_HOVER.title": "Mirror card hover",
   "SPECTATEMOD-MIRROR_HOVER.description": "Raise the card the teammate is inspecting.",
 

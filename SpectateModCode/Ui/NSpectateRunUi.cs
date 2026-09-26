@@ -148,6 +148,7 @@ public partial class NSpectateRunUi : Control
         }
         SpectateController.ViewChanged -= OnViewChanged;
         ApplyRelics(null);
+        ApplyTopBar(null);
         ApplyPotions(null);
         if (_mirror != null && GodotObject.IsInstanceValid(_mirror))
         {
@@ -230,6 +231,7 @@ public partial class NSpectateRunUi : Control
     {
         ApplyRelics(viewed);
         ApplyPotions(viewed);
+        ApplyTopBar(viewed);
         bool showBorder = viewed != null && SpectateConfig.ShowSpectatingBorder;
         foreach (ColorRect rect in _border)
         {
@@ -259,6 +261,16 @@ public partial class NSpectateRunUi : Control
         }
     }
 
+
+    /// <summary>Gold, hit points and portrait; <see cref="TopBarView" /> guards each part on its own.</summary>
+    private static void ApplyTopBar(Player? viewed)
+    {
+        Player? owner = viewed != null && SpectateConfig.ReplaceGoldAndHp ? viewed : SpectateController.Me;
+        if (owner != null)
+        {
+            TopBarView.Show(owner);
+        }
+    }
     /// <summary>Same idea as <see cref="ApplyRelics" />, but through a read-only copy: see <see cref="NSpectatePotionBelt" />.</summary>
     private void ApplyPotions(Player? viewed)
     {

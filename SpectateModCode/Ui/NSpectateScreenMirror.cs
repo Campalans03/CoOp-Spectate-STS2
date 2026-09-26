@@ -8,9 +8,11 @@ using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Entities.Merchant;
 using MegaCrit.Sts2.Core.Entities.Multiplayer;
 using MegaCrit.Sts2.Core.Entities.Players;
+using MegaCrit.Sts2.Core.Events;
 using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Localization;
 using MegaCrit.Sts2.Core.Models;
+using MegaCrit.Sts2.Core.Multiplayer.Game;
 using MegaCrit.Sts2.Core.Multiplayer.Game.PeerInput;
 using MegaCrit.Sts2.Core.Nodes.CommonUi;
 using MegaCrit.Sts2.Core.Nodes.Cards;
@@ -18,6 +20,7 @@ using MegaCrit.Sts2.Core.Nodes.GodotExtensions;
 using MegaCrit.Sts2.Core.Nodes.Cards.Holders;
 using MegaCrit.Sts2.Core.Nodes.HoverTips;
 using MegaCrit.Sts2.Core.Nodes;
+using MegaCrit.Sts2.Core.Nodes.Events;
 using MegaCrit.Sts2.Core.Nodes.Multiplayer;
 using MegaCrit.Sts2.Core.Nodes.Rewards;
 using MegaCrit.Sts2.Core.Nodes.Screens;
@@ -57,7 +60,8 @@ public partial class NSpectateScreenMirror : Control
         RewardCards,
         ChooseCards,
         Shop,
-        Grid
+        Grid,
+        Event
     }
 
     private const string merchantInventoryScene = "res://scenes/merchant/merchant_inventory.tscn";
@@ -91,6 +95,11 @@ public partial class NSpectateScreenMirror : Control
     private NCardGrid? _grid;
     private readonly List<CardModel> _shownOptions = new();
     private readonly HashSet<CardModel> _shownMarked = new();
+    private NEventLayout? _eventLayout;
+    private bool _eventDirty;
+
+    /// <summary>An event whose layout we found we can't copy, so it isn't tried again every frame.</summary>
+    private EventModel? _unsupportedEvent;
     private NMerchantInventory? _rug;
     private List<MerchantEntry> _shopEntries = new();
     private readonly HashSet<NMerchantSlot> _shownSold = new();
@@ -103,7 +112,6 @@ public partial class NSpectateScreenMirror : Control
     private readonly Dictionary<CardModel, Control> _hitboxes = new();
     private CardModel? _localHovered;
 
-    private bool _hidingOurs;
     private readonly Dictionary<CanvasItem, Color> _hidden = new();
 
     public static NSpectateScreenMirror Create()
@@ -218,6 +226,9 @@ public partial class NSpectateScreenMirror : Control
                 case MerchantInventory:
                     FillShop();
                     break;
+                case EventModel eventModel:
+                    FillEvent(eventModel);
+                    break;
             }
         }
         catch (Exception e)
@@ -255,7 +266,41 @@ public partial class NSpectateScreenMirror : Control
         {
             return (Mode.Shop, shop);
         }
+        if (OpenEvent(player) is { } eventModel)
+        {
+            return (Mode.Event, eventModel);
+        }
         return (Mode.None, null);
+    }
+
+    /// <summary>
+    /// The teammate's own copy of the event we are all standing in, while they are looking at it. Only for events each
+    /// player goes through on their own (Neow, most "?" rooms): a shared one is voted on, and everybody already sees the
+    /// same screen with everyone's votes on it.
+    /// </summary>
+    private EventModel? OpenEvent(Player player)
+    {
+        if (SpectateController.Run?.CurrentRoom is not EventRoom || NEventRoom.Instance == null
+                                                                  || !IsInRoom(player))
+        {
+            return null;
+        }
+        EventSynchronizer events = RunManager.Instance.EventSynchronizer;
+        EventModel eventModel;
+        try
+        {
+            // Both throw between events rather than returning nothing; that just means there is no event to show.
+            if (events.Events.Count == 0 || events.IsShared)
+            {
+                return null;
+            }
+            eventModel = events.GetEventForPlayer(player);
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+        return eventModel == _unsupportedEvent ? null : eventModel;
     }
 
     /// <summary>
@@ -267,7 +312,7 @@ public partial class NSpectateScreenMirror : Control
     {
         IRunState? run = SpectateController.Run;
         if (run?.CurrentRoom is not MerchantRoom room || !ShopState.Get(player).Open
-                                                     || _sync?.GetScreenType(player.NetId) != NetScreenType.Room)
+                                                     || !IsInRoom(player))
         {
             return null;
         }
@@ -297,8 +342,22 @@ public partial class NSpectateScreenMirror : Control
         return set.Rewards.All(r => r.SuccessfullySelected) ? null : set;
     }
 
+    /// <summary>
+    /// Whether the player is looking at the room itself, with nothing of theirs over it. The game only sends a player's
+    /// screen when it changes, so until they first open something it is still None; at the start of a run, in Neow,
+    /// that is what everyone has. None means the room.
+    /// </summary>
+    private bool IsInRoom(Player player)
+    {
+        return _sync?.GetScreenType(player.NetId) is NetScreenType.Room or NetScreenType.None;
+    }
+
     private void OpenScreen()
     {
+        if (_mode != Mode.None && _player != null)
+        {
+            MainFile.Logger.Info($"Mirroring {SpectateController.GetDisplayName(_player)}'s {_mode} screen");
+        }
         switch (_mode)
         {
             case Mode.Rewards:
@@ -349,6 +408,12 @@ public partial class NSpectateScreenMirror : Control
                 break;
             case Mode.Grid:
                 OpenGrid((GridSelection.Choice)_source!);
+                break;
+            case Mode.Event:
+                if (!OpenEventLayout((EventModel)_source!))
+                {
+                    return;
+                }
                 break;
             default:
                 return;
@@ -551,6 +616,102 @@ public partial class NSpectateScreenMirror : Control
         _grid._targetDrag = progress.Scroll;
     }
 
+    /// <summary>
+    /// Their event, in the layout scene the event itself asks for, filled in the way NEventRoom fills ours: portrait,
+    /// title, the page they are on, their options. What NEventRoom does through SetEvent is done by hand instead, since
+    /// SetEvent also runs the event's own room-entry code, which is not ours to run again for them.
+    /// <para>
+    /// An ancient (Neow) gets its banner and background, but not its music, which ours is already playing, and not its
+    /// dialogue: each client picks those lines at random, so we can't know which ones they are reading. Its options are
+    /// shown straight away.
+    /// </para>
+    /// <para>
+    /// Events with a layout of their own (custom scenes, or a fight inside the event) aren't copied; the label still
+    /// says where they are.
+    /// </para>
+    /// </summary>
+    /// <returns>False when this event can't be copied; the mirror stays down for it.</returns>
+    private bool OpenEventLayout(EventModel eventModel)
+    {
+        Control scene = eventModel.CreateScene().Instantiate<Control>(PackedScene.GenEditState.Disabled);
+        if (scene is not NEventLayout layout || scene is NCombatEventLayout)
+        {
+            scene.QueueFreeSafely();
+            _unsupportedEvent = eventModel;
+            _mode = Mode.None;
+            _player = null;
+            _source = null;
+            return false;
+        }
+
+        MirrorScreenPatches.Register(layout);
+        layout.Name = "MirrorEventLayout";
+        this.AddChildSafely(layout);
+        _screen = layout;
+        _eventLayout = layout;
+        layout._event = eventModel;
+
+        if (layout is NAncientEventLayout ancient && eventModel is AncientEventModel ancientModel)
+        {
+            ancient._ancientEvent = ancientModel;
+            ancient._ancientNameBanner = NAncientNameBanner.Create(ancientModel);
+            ancient.AddChildSafely(ancient._ancientNameBanner);
+            ancient.UpdateBannerVisibility();
+            foreach (Node child in ancient._ancientBgContainer.GetChildren())
+            {
+                ancient._ancientBgContainer.RemoveChildSafely(child);
+                child.QueueFreeSafely();
+            }
+            ancient._ancientBgContainer.AddChildSafely(
+                ancientModel.CreateBackgroundScene().Instantiate<Control>(PackedScene.GenEditState.Disabled));
+        }
+        else
+        {
+            layout.SetPortrait(eventModel.CreateInitialPortrait(),
+                eventModel.HasPhobiaModePortrait ? eventModel.CreateInitialPhobiaModePortrait() : null);
+        }
+        layout.SetTitle(eventModel.Title.GetFormattedText());
+
+        eventModel.StateChanged += OnEventStateChanged;
+        _eventDirty = true;
+        return true;
+    }
+
+    private void OnEventStateChanged(EventModel _)
+    {
+        _eventDirty = true;
+    }
+
+    /// <summary>The page they are on and its options, redone whenever their event moves on (NEventRoom.RefreshEventState).</summary>
+    private void FillEvent(EventModel eventModel)
+    {
+        if (_eventLayout == null || !_eventDirty)
+        {
+            return;
+        }
+        _eventDirty = false;
+
+        LocString? description = eventModel.Description;
+        if (description != null && description.Exists())
+        {
+            eventModel.Owner!.Character.AddDetailsTo(description);
+            description.Add("IsMultiplayer", eventModel.Owner.RunState.Players.Count > 1);
+            eventModel.DynamicVars.AddTo(description);
+            _eventLayout.SetDescription(description.GetFormattedText());
+        }
+
+        IReadOnlyList<EventOption> options = eventModel.IsFinished
+            ? new[] { new EventOption(eventModel, NEventRoom.Proceed, "PROCEED", false, true) }
+            : eventModel.CurrentOptions;
+        _eventLayout.ClearOptions();
+        _eventLayout.AddOptions(options);
+        // Lays the content out with the options up, as it does once the last line of dialogue is read.
+        if (_eventLayout is NAncientEventLayout ancient)
+        {
+            Callable.From(ancient.OnSetupComplete).CallDeferred();
+        }
+    }
+
     private static void SetUpBanner(NCommonBanner banner)
     {
         banner.label.SetTextAutoSize(new LocString("gameplay_ui", "CHOOSE_CARD_HEADER").GetRawText());
@@ -571,6 +732,7 @@ public partial class NSpectateScreenMirror : Control
         ClearRewards();
         foreach (Reward reward in remaining)
         {
+            ForgetFreedIcons(reward);
             // The screen a button reports back to is only used when a reward is claimed, and claiming is exactly what
             // the button patch stops.
             Control button = reward is LinkedRewardSet linked
@@ -579,6 +741,26 @@ public partial class NSpectateScreenMirror : Control
             _rewardList.AddChildSafely(button);
         }
         _shownRewards.AddRange(remaining);
+    }
+
+    /// <summary>
+    /// A potion reward makes its icon node once and hands the same one out every time. The last copy of this screen
+    /// took it down along with its button, so the next button would be given a freed node and fail to build. Let it
+    /// make a fresh one. Only we ever show a teammate's reward, so nothing else is holding on to that node.
+    /// </summary>
+    private static void ForgetFreedIcons(Reward reward)
+    {
+        if (reward is LinkedRewardSet linked)
+        {
+            foreach (Reward inner in linked.Rewards)
+            {
+                ForgetFreedIcons(inner);
+            }
+        }
+        else if (reward is PotionReward potion && potion._icon != null && !GodotObject.IsInstanceValid(potion._icon))
+        {
+            potion._icon = null;
+        }
     }
 
     private void FillCards(CardChoice.Choice choice)
@@ -687,41 +869,44 @@ public partial class NSpectateScreenMirror : Control
     }
 
     /// <summary>
-    /// Fades out our own screens of the same kind while theirs is up, so ours don't show through the shade under
-    /// theirs: our overlays, and our own merchant rug. Only the look changes, so nothing of ours notices. Our map is
-    /// never under here: the run UI puts it away while we watch somebody who is not on it.
+    /// Fades out our own screens that would show through or under theirs: our overlays, our own merchant rug, and in
+    /// an event our own event screen, which sits right where theirs is drawn. Only the look changes, so nothing of ours
+    /// notices. Worked out every frame, since what is on show can change under an open copy (a grid opening over an
+    /// event). Our map is never under here: the run UI puts it away while we watch somebody who is not on it.
     /// </summary>
     private void HideOurs(bool hide)
     {
-        // Their rug brings its own shade, as it does for them; the overlay one would darken it twice.
-        _backstop.Visible = _mode != Mode.Shop;
-        if (hide == _hidingOurs)
-        {
-            return;
-        }
-        if (hide)
-        {
-            _hidden.Clear();
-            foreach (CanvasItem item in new CanvasItem?[] { NOverlayStack.Instance, NMerchantRoom.Instance?.Inventory }
-                         .OfType<CanvasItem>()
-                         .Where(GodotObject.IsInstanceValid))
-            {
-                _hidden[item] = item.Modulate;
-                item.Modulate = Colors.Transparent;
-            }
-        }
-        else
-        {
-            foreach ((CanvasItem item, Color modulate) in _hidden)
-            {
-                if (GodotObject.IsInstanceValid(item))
+        // The shade always takes the mouse, so nothing of ours can be clicked through a copy; it is only seen where the
+        // real screen has the overlay shade too. A rug or an event brings its own look.
+        Color shade = _backstop.Modulate;
+        shade.A = _mode is Mode.Shop or Mode.Event ? 0f : 1f;
+        _backstop.Modulate = shade;
+
+        HashSet<CanvasItem> wanted = hide
+            ? new CanvasItem?[]
                 {
-                    item.Modulate = modulate;
+                    NOverlayStack.Instance,
+                    NMerchantRoom.Instance?.Inventory,
+                    _mode == Mode.Event ? NEventRoom.Instance?.Layout : null
                 }
+                .OfType<CanvasItem>()
+                .Where(GodotObject.IsInstanceValid)
+                .ToHashSet()
+            : new HashSet<CanvasItem>();
+
+        foreach ((CanvasItem item, Color modulate) in _hidden.Where(h => !wanted.Contains(h.Key)).ToList())
+        {
+            if (GodotObject.IsInstanceValid(item))
+            {
+                item.Modulate = modulate;
             }
-            _hidden.Clear();
+            _hidden.Remove(item);
         }
-        _hidingOurs = hide;
+        foreach (CanvasItem item in wanted.Where(w => !_hidden.ContainsKey(w)))
+        {
+            _hidden[item] = item.Modulate;
+            item.Modulate = Colors.Transparent;
+        }
     }
 
     /// <summary>
@@ -797,6 +982,12 @@ public partial class NSpectateScreenMirror : Control
         _grid = null;
         _shownOptions.Clear();
         _shownMarked.Clear();
+        if (_eventLayout?._event is { } eventModel)
+        {
+            eventModel.StateChanged -= OnEventStateChanged;
+        }
+        _eventLayout = null;
+        _eventDirty = false;
     }
 
     private void ClearRewards()

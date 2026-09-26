@@ -26,9 +26,14 @@ public static class MirrorScreenPatches
         mirrors.AddOrUpdate(screen, screen);
     }
 
+    public static bool IsMirror(Node instance)
+    {
+        return mirrors.TryGetValue(instance, out _);
+    }
+
     private static bool IsLive(Node instance)
     {
-        return !mirrors.TryGetValue(instance, out _);
+        return !IsMirror(instance);
     }
 
     [HarmonyPrefix]
