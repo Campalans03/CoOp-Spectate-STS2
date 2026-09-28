@@ -88,18 +88,20 @@ public static class SpectateController
         // Every combat starts on our own board: our first turn is about to begin and it needs our hand.
         Stop();
 
-        CombatManager.Instance.PlayerEndedTurn += OnPlayerEndedTurn;
-        CombatManager.Instance.PlayerUnendedTurn += OnPlayerUnendedTurn;
-        CombatManager.Instance.TurnStarted += OnTurnStarted;
-        CombatManager.Instance.CreaturesChanged += OnCreaturesChanged;
-        CombatManager.Instance.CombatEnded += OnCombatEnded;
+        // These are raised from the middle of the game's own turn logic, so every handler is walled off: one that threw
+        // would stop the game from ever moving on to the enemy turn, or to our draw after it.
+        CombatManager.Instance.PlayerEndedTurn += SafePlayerEndedTurn;
+        CombatManager.Instance.PlayerUnendedTurn += SafePlayerUnendedTurn;
+        CombatManager.Instance.TurnStarted += SafeTurnStarted;
+        CombatManager.Instance.CreaturesChanged += SafeCreaturesChanged;
+        CombatManager.Instance.CombatEnded += SafeCombatEnded;
 
         // A Player keeps the same Creature for the whole run, so hold the reference we subscribed to and detach from
         // that exact one later rather than looking it up again.
         _localCreature = Me?.Creature;
         if (_localCreature != null)
         {
-            _localCreature.Died += OnLocalCreatureDied;
+            _localCreature.Died += SafeLocalCreatureDied;
         }
         _subscribed = true;
     }
@@ -108,16 +110,16 @@ public static class SpectateController
     {
         if (_subscribed)
         {
-            CombatManager.Instance.PlayerEndedTurn -= OnPlayerEndedTurn;
-            CombatManager.Instance.PlayerUnendedTurn -= OnPlayerUnendedTurn;
-            CombatManager.Instance.TurnStarted -= OnTurnStarted;
-            CombatManager.Instance.CreaturesChanged -= OnCreaturesChanged;
-            CombatManager.Instance.CombatEnded -= OnCombatEnded;
+            CombatManager.Instance.PlayerEndedTurn -= SafePlayerEndedTurn;
+            CombatManager.Instance.PlayerUnendedTurn -= SafePlayerUnendedTurn;
+            CombatManager.Instance.TurnStarted -= SafeTurnStarted;
+            CombatManager.Instance.CreaturesChanged -= SafeCreaturesChanged;
+            CombatManager.Instance.CombatEnded -= SafeCombatEnded;
             _subscribed = false;
         }
         if (_localCreature != null)
         {
-            _localCreature.Died -= OnLocalCreatureDied;
+            _localCreature.Died -= SafeLocalCreatureDied;
             _localCreature = null;
         }
         _combat = null;
@@ -303,6 +305,28 @@ public static class SpectateController
             MainFile.Logger.Error($"Spectate view listener threw: {e}");
         }
     }
+
+    private static void SafePlayerEndedTurn(Player player, bool canBackOut) =>
+        Safe.Run("follow a player ending their turn", () => OnPlayerEndedTurn(player, canBackOut));
+
+    private static void SafePlayerUnendedTurn(Player player) =>
+        Safe.Run("follow a player taking their turn back", () => OnPlayerUnendedTurn(player));
+
+    private static void SafeTurnStarted(CombatState state)
+    {
+        Safe.Run("hand the board back as a turn starts", () => OnTurnStarted(state));
+        // Separately, so it still runs if handing back failed part way.
+        Safe.Run("show our own hand as our turn starts", SpectateView.EnsureOwnBoardShown);
+    }
+
+    private static void SafeCreaturesChanged(CombatState state) =>
+        Safe.Run("follow creatures joining or leaving combat", () => OnCreaturesChanged(state));
+
+    private static void SafeCombatEnded(CombatRoom room) =>
+        Safe.Run("follow the end of combat", () => OnCombatEnded(room));
+
+    private static void SafeLocalCreatureDied(Creature creature) =>
+        Safe.Run("follow our own death", () => OnLocalCreatureDied(creature));
 
     private static void OnPlayerEndedTurn(Player player, bool canBackOut)
     {

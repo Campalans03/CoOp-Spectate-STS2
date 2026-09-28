@@ -416,19 +416,22 @@ public partial class NSpectateHand : Control
         Unbind();
     }
 
+    // The handlers below are raised from inside the game's draws, discards and card plays; see Safe for why they are
+    // walled off.
+
     private void OnPileChanged()
     {
-        Rebuild();
+        Safe.Run("mirror the watched player's hand", Rebuild);
     }
 
     private void OnCombatStateChanged(CombatState _)
     {
-        RefreshCardVisuals();
+        Safe.Run("redraw the watched player's cards", RefreshCardVisuals);
     }
 
     private void OnResourceChanged(int oldValue, int newValue)
     {
-        RefreshCardVisuals();
+        Safe.Run("redraw the watched player's cards", RefreshCardVisuals);
     }
 
     /// <summary>Redraws cost and playability on every mirrored card, the way NHandCardHolder.UpdateCard does.</summary>
@@ -637,7 +640,7 @@ public partial class NSpectateHand : Control
             _cards[card] = node;
             _hitboxes[card] = hitbox;
 
-            Action onChanged = () => Flash(captured);
+            Action onChanged = () => Safe.Run("flash a changed card", () => Flash(captured));
             WatchForFlash(card, onChanged);
             _flashHandlers[card] = onChanged;
         }

@@ -18,6 +18,10 @@ namespace SpectateMod.SpectateModCode.Patches;
 /// Notices when a teammate opens a grid of cards to pick from, the same way <see cref="CardSelectPatches" /> does for
 /// the hand. Each postfix rebuilds the list the real screen is given exactly as the method builds it (same filter, same
 /// order), because the cards they mark come over as positions in that list.
+/// <para>
+/// These run for our own picks too, in the middle of the card or event that asked for them, so the choice is only
+/// built once it is known to be a teammate's, and inside the guard: a failure here must not break our own card play.
+/// </para>
 /// </summary>
 [HarmonyPatch(typeof(CardSelectCmd))]
 public static class GridSelectPatches
@@ -30,12 +34,15 @@ public static class GridSelectPatches
     public static void AfterSimpleGrid(IReadOnlyList<CardModel> cardsIn, Player player, CardSelectorPrefs prefs,
         Task<IEnumerable<CardModel>> __result)
     {
-        List<CardModel> cards = cardsIn.ToList();
-        Track(player, __result, new GridSelection.Choice
+        Track(player, __result, () =>
         {
-            Screen = GridSelection.Screen.Simple,
-            Options = () => cards,
-            Prompt = prefs.Prompt.GetFormattedText()
+            List<CardModel> cards = cardsIn.ToList();
+            return new GridSelection.Choice
+            {
+                Screen = GridSelection.Screen.Simple,
+                Options = () => cards,
+                Prompt = prefs.Prompt.GetFormattedText()
+            };
         });
     }
 
@@ -44,12 +51,15 @@ public static class GridSelectPatches
     public static void AfterSimpleGridForRewards(List<CardCreationResult> cards, Player player, CardSelectorPrefs prefs,
         Task<IEnumerable<CardModel>> __result)
     {
-        List<CardModel> options = cards.Select(c => c.Card).ToList();
-        Track(player, __result, new GridSelection.Choice
+        Track(player, __result, () =>
         {
-            Screen = GridSelection.Screen.Simple,
-            Options = () => options,
-            Prompt = prefs.Prompt.GetFormattedText()
+            List<CardModel> options = cards.Select(c => c.Card).ToList();
+            return new GridSelection.Choice
+            {
+                Screen = GridSelection.Screen.Simple,
+                Options = () => options,
+                Prompt = prefs.Prompt.GetFormattedText()
+            };
         });
     }
 
@@ -63,7 +73,7 @@ public static class GridSelectPatches
     public static void AfterCombatPile(CardPile pile, Player player, CardSelectorPrefs prefs,
         Func<CardModel, bool> filter, Task<IEnumerable<CardModel>> __result)
     {
-        Track(player, __result, new GridSelection.Choice
+        Track(player, __result, () => new GridSelection.Choice
         {
             Screen = GridSelection.Screen.CombatPile,
             Options = () => pile.Cards.Where(filter).ToList(),
@@ -78,13 +88,16 @@ public static class GridSelectPatches
     public static void AfterDeckForUpgrade(Player player, CardSelectorPrefs prefs,
         Task<IEnumerable<CardModel>> __result)
     {
-        List<CardModel> cards = PileType.Deck.GetPile(player).Cards.Where(c => c.IsUpgradable).ToList();
-        Track(player, __result, new GridSelection.Choice
+        Track(player, __result, () =>
         {
-            Screen = GridSelection.Screen.DeckUpgrade,
-            Options = () => cards,
-            Prompt = prefs.Prompt.GetFormattedText(),
-            Cancelable = prefs.Cancelable
+            List<CardModel> cards = PileType.Deck.GetPile(player).Cards.Where(c => c.IsUpgradable).ToList();
+            return new GridSelection.Choice
+            {
+                Screen = GridSelection.Screen.DeckUpgrade,
+                Options = () => cards,
+                Prompt = prefs.Prompt.GetFormattedText(),
+                Cancelable = prefs.Cancelable
+            };
         });
     }
 
@@ -93,15 +106,18 @@ public static class GridSelectPatches
     public static void AfterDeckForTransformation(Player player, CardSelectorPrefs prefs,
         Task<IEnumerable<CardModel>> __result)
     {
-        List<CardModel> cards = PileType.Deck.GetPile(player).Cards
-            .Where(c => c.Type != CardType.Quest && c.IsTransformable)
-            .ToList();
-        Track(player, __result, new GridSelection.Choice
+        Track(player, __result, () =>
         {
-            Screen = GridSelection.Screen.DeckTransform,
-            Options = () => cards,
-            Prompt = prefs.Prompt.GetFormattedText(),
-            Cancelable = prefs.Cancelable
+            List<CardModel> cards = PileType.Deck.GetPile(player).Cards
+                .Where(c => c.Type != CardType.Quest && c.IsTransformable)
+                .ToList();
+            return new GridSelection.Choice
+            {
+                Screen = GridSelection.Screen.DeckTransform,
+                Options = () => cards,
+                Prompt = prefs.Prompt.GetFormattedText(),
+                Cancelable = prefs.Cancelable
+            };
         });
     }
 
@@ -112,23 +128,26 @@ public static class GridSelectPatches
     public static void AfterDeckForEnchantment(IReadOnlyList<CardModel> cards, EnchantmentModel enchantment,
         int amount, CardSelectorPrefs prefs, Task<IEnumerable<CardModel>> __result)
     {
-        if (cards.Count == 0)
+        Player? player = Safe.Run("find who is enchanting", () => cards.Count == 0 ? null : cards[0].Owner, null);
+        if (player == null)
         {
             return;
         }
-        Player player = cards[0].Owner;
-        List<CardModel> deck = PileType.Deck.GetPile(player).Cards.ToList();
-        List<CardModel> ordered = cards.OrderBy(c => deck.IndexOf(c)).ToList();
-        EnchantmentModel shown = enchantment.ToMutable();
-        shown.Amount = amount;
-        shown.RecalculateValues();
-        Track(player, __result, new GridSelection.Choice
+        Track(player, __result, () =>
         {
-            Screen = GridSelection.Screen.DeckEnchant,
-            Options = () => ordered,
-            Prompt = prefs.Prompt.GetFormattedText(),
-            Cancelable = prefs.Cancelable,
-            Enchantment = shown
+            List<CardModel> deck = PileType.Deck.GetPile(player).Cards.ToList();
+            List<CardModel> ordered = cards.OrderBy(c => deck.IndexOf(c)).ToList();
+            EnchantmentModel shown = enchantment.ToMutable();
+            shown.Amount = amount;
+            shown.RecalculateValues();
+            return new GridSelection.Choice
+            {
+                Screen = GridSelection.Screen.DeckEnchant,
+                Options = () => ordered,
+                Prompt = prefs.Prompt.GetFormattedText(),
+                Cancelable = prefs.Cancelable,
+                Enchantment = shown
+            };
         });
     }
 
@@ -138,25 +157,28 @@ public static class GridSelectPatches
     public static void AfterDeckGeneric(Player player, CardSelectorPrefs prefs, Func<CardModel, bool>? filter,
         Func<CardModel, int>? sortingOrder, Task<IEnumerable<CardModel>> __result)
     {
-        List<CardModel> cards = PileType.Deck.GetPile(player).Cards.ToList();
-        if (filter != null)
+        Track(player, __result, () =>
         {
-            cards = cards.Where(filter).ToList();
-        }
-        if (sortingOrder != null)
-        {
-            cards = cards.OrderBy(sortingOrder).ToList();
-        }
-        Track(player, __result, new GridSelection.Choice
-        {
-            Screen = GridSelection.Screen.DeckGeneric,
-            Options = () => cards,
-            Prompt = prefs.Prompt.GetFormattedText(),
-            Cancelable = prefs.Cancelable
+            List<CardModel> cards = PileType.Deck.GetPile(player).Cards.ToList();
+            if (filter != null)
+            {
+                cards = cards.Where(filter).ToList();
+            }
+            if (sortingOrder != null)
+            {
+                cards = cards.OrderBy(sortingOrder).ToList();
+            }
+            return new GridSelection.Choice
+            {
+                Screen = GridSelection.Screen.DeckGeneric,
+                Options = () => cards,
+                Prompt = prefs.Prompt.GetFormattedText(),
+                Cancelable = prefs.Cancelable
+            };
         });
     }
 
-    private static void Track(Player player, Task task, GridSelection.Choice choice)
+    private static void Track(Player player, Task task, Func<GridSelection.Choice> build)
     {
         try
         {
@@ -164,6 +186,7 @@ public static class GridSelectPatches
             {
                 return;
             }
+            GridSelection.Choice choice = build();
             GridSelection.Begin(player, choice);
             TaskWatch.WhenDone(task, () => GridSelection.End(player, choice));
         }

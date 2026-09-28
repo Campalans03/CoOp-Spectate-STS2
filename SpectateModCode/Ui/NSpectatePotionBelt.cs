@@ -104,10 +104,11 @@ public partial class NSpectatePotionBelt : HBoxContainer
         }
         Unbind();
         _player = player;
-        player.PotionProcured += OnPotionProcured;
-        player.UsedPotionRemoved += OnUsedPotionRemoved;
-        player.PotionDiscarded += OnPotionDiscarded;
-        player.MaxPotionCountChanged += OnMaxPotionCountChanged;
+        // Raised from inside the teammate's potion actions; see Safe.
+        player.PotionProcured += SafePotionProcured;
+        player.UsedPotionRemoved += SafeUsedPotionRemoved;
+        player.PotionDiscarded += SafePotionDiscarded;
+        player.MaxPotionCountChanged += SafeMaxPotionCountChanged;
         Rebuild();
     }
 
@@ -115,10 +116,10 @@ public partial class NSpectatePotionBelt : HBoxContainer
     {
         if (_player != null)
         {
-            _player.PotionProcured -= OnPotionProcured;
-            _player.UsedPotionRemoved -= OnUsedPotionRemoved;
-            _player.PotionDiscarded -= OnPotionDiscarded;
-            _player.MaxPotionCountChanged -= OnMaxPotionCountChanged;
+            _player.PotionProcured -= SafePotionProcured;
+            _player.UsedPotionRemoved -= SafeUsedPotionRemoved;
+            _player.PotionDiscarded -= SafePotionDiscarded;
+            _player.MaxPotionCountChanged -= SafeMaxPotionCountChanged;
             _player = null;
         }
         ClearHolders();
@@ -185,6 +186,18 @@ public partial class NSpectatePotionBelt : HBoxContainer
     {
         return _holders.FirstOrDefault(h => h.Potion != null && h.Potion.Model == potion);
     }
+
+    private void SafePotionProcured(PotionModel potion) =>
+        Safe.Run("mirror a teammate's new potion", () => OnPotionProcured(potion));
+
+    private void SafeUsedPotionRemoved(PotionModel potion) =>
+        Safe.Run("mirror a teammate drinking a potion", () => OnUsedPotionRemoved(potion));
+
+    private void SafePotionDiscarded(PotionModel potion) =>
+        Safe.Run("mirror a teammate discarding a potion", () => OnPotionDiscarded(potion));
+
+    private void SafeMaxPotionCountChanged(int count) =>
+        Safe.Run("mirror a teammate's potion slots", () => OnMaxPotionCountChanged(count));
 
     private void OnPotionProcured(PotionModel potion)
     {

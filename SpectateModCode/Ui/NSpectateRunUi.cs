@@ -136,6 +136,12 @@ public partial class NSpectateRunUi : Control
         {
             return;
         }
+        if (!MainFile.MirrorPatchesApplied)
+        {
+            // Without them a mirrored screen would run its own code as if it were ours; better to show nothing.
+            MainFile.Logger.Warn("Not mirroring teammates' screens: the patches that keep them look-only failed to apply");
+            return;
+        }
         _mirror = NSpectateScreenMirror.Create();
         globalUi.AddChildSafely(_mirror);
         int above = Math.Max(globalUi.Overlays.GetIndex(), globalUi.MapScreen.GetIndex());

@@ -69,7 +69,7 @@ public static class SpectateView
         ui.AddChildSafely(_selectionSync);
 
         SpectateController.ViewChanged += OnViewChanged;
-        RunManager.Instance.HoveredModelTracker.HoverChanged += OnHoverChanged;
+        RunManager.Instance.HoveredModelTracker.HoverChanged += SafeHoverChanged;
 
         // Apply whatever is on show straight away rather than waiting for the next change.
         OnViewChanged(SpectateController.Viewed);
@@ -85,7 +85,7 @@ public static class SpectateView
         SpectateController.ViewChanged -= OnViewChanged;
         try
         {
-            RunManager.Instance.HoveredModelTracker.HoverChanged -= OnHoverChanged;
+            RunManager.Instance.HoveredModelTracker.HoverChanged -= SafeHoverChanged;
         }
         catch (Exception)
         {
@@ -193,6 +193,30 @@ public static class SpectateView
         }
     }
 
+    /// <summary>
+    /// Belt and braces for the start of our own turn: whatever went wrong while we were watching someone else, our own
+    /// hand and combat UI are back on screen, so we can always play and end the turn.
+    /// </summary>
+    public static void EnsureOwnBoardShown()
+    {
+        if (_ui == null || !GodotObject.IsInstanceValid(_ui) || SpectateController.Viewed != null)
+        {
+            return;
+        }
+        if (!_ui.Hand.CardHolderContainer.Visible)
+        {
+            MainFile.Logger.Warn("Our own hand was still hidden at the start of our turn; showing it again");
+            _ui.Hand.CardHolderContainer.Visible = true;
+            _ui.Hand.ForceRefreshCardIndices();
+        }
+        if (_hand != null && GodotObject.IsInstanceValid(_hand) && _hand.Visible)
+        {
+            _hand.Visible = false;
+            _hand.Unbind();
+        }
+        RestoreCombatUi();
+    }
+
     private static void ApplyCombatUi(Player? target)
     {
         if (_ui == null || _localPlayer == null)
@@ -263,7 +287,8 @@ public static class SpectateView
         pile.Initialize(player);
         if (player != _localPlayer && pile._pile != null)
         {
-            Action handler = () => SyncRemoteCount(pile);
+            // Raised from inside the teammate's draws and discards; see Safe.
+            Action handler = () => Safe.Run("count a teammate's pile", () => SyncRemoteCount(pile));
             pile._pile.ContentsChanged += handler;
             remoteCounters[pile] = (pile._pile, handler);
         }
@@ -435,6 +460,9 @@ public static class SpectateView
         own.Position = Vector2.Zero;
         own.Modulate = Colors.White;
     }
+
+    private static void SafeHoverChanged(ulong playerId) =>
+        Safe.Run("mirror a teammate's hover", () => OnHoverChanged(playerId));
 
     private static void OnHoverChanged(ulong playerId)
     {
