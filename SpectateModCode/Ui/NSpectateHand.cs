@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Godot;
+using MegaCrit.Sts2.Core.Assets;
 using MegaCrit.Sts2.Core.Combat;
 using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Entities.Creatures;
@@ -85,6 +86,9 @@ public partial class NSpectateHand : Control
     private readonly Dictionary<CardModel, Control> _slots = new();
     private readonly Dictionary<CardModel, NCard> _cards = new();
     private readonly Dictionary<CardModel, Control> _hitboxes = new();
+    private readonly Dictionary<CardModel, Control> _flashes = new();
+    private readonly Dictionary<CardModel, Tween> _flashTweens = new();
+    private readonly Dictionary<CardModel, Action> _flashHandlers = new();
     private readonly List<CardModel> _order = new();
 
     private Control _cardLayer = null!;
@@ -266,6 +270,8 @@ public partial class NSpectateHand : Control
             return;
         }
         RefreshSelectionHeader();
+        // A choice can decide which cards glow gold, and the game redoes every card's glow as one opens and closes.
+        RefreshCardVisuals();
         Layout();
     }
 
@@ -430,11 +436,137 @@ public partial class NSpectateHand : Control
     {
         foreach (NCard node in _cards.Values)
         {
-            if (GodotObject.IsInstanceValid(node) && node.IsNodeReady())
-            {
-                node.UpdateVisuals(PileType.Hand, CardPreviewMode.Normal);
-            }
+            UpdateCard(node);
         }
+    }
+
+    /// <summary>
+    /// NHandCardHolder.UpdateCard: the card's own visuals, then the glow around it. Blue for a card they can play, gold
+    /// or red for one the card itself (or the choice they are making) wants to call out.
+    /// <para>
+    /// The glow lives on the pooled node, which is allowed here: <c>OnReturnedFromPool</c> puts the highlight back to
+    /// its playable colour and hides it, so nothing we do to it outlives our hold on the card.
+    /// </para>
+    /// </summary>
+    private void UpdateCard(NCard node)
+    {
+        if (!GodotObject.IsInstanceValid(node) || !node.IsNodeReady())
+        {
+            return;
+        }
+        node.UpdateVisuals(PileType.Hand, CardPreviewMode.Normal);
+        CardModel? card = node.Model;
+        if (card == null || !CombatManager.Instance.IsInProgress)
+        {
+            return;
+        }
+        bool red = ShouldGlowRed(card);
+        bool gold = ShouldGlowGold(card);
+        if (!card.CanPlay() && !red && !gold)
+        {
+            node.CardHighlight.AnimHide();
+            return;
+        }
+        node.CardHighlight.AnimShow();
+        node.CardHighlight.Modulate = red ? NCardHighlight.red : gold ? NCardHighlight.gold : NCardHighlight.playableColor;
+    }
+
+    /// <summary>NHandCardHolder.ShouldGlowGold, with the teammate's choice standing in for the real hand's.</summary>
+    private bool ShouldGlowGold(CardModel card)
+    {
+        bool? chosen = _player == null ? null : HandSelection.GetChoice(_player)?.GlowsGold(card);
+        if (chosen != null)
+        {
+            return chosen.Value;
+        }
+        return card.CanPlay() && card.ShouldGlowGold && IsInPlayPhase(card);
+    }
+
+    /// <summary>NHandCardHolder.ShouldGlowRed.</summary>
+    private static bool ShouldGlowRed(CardModel card)
+    {
+        return card.ShouldGlowRed && IsInPlayPhase(card);
+    }
+
+    private static bool IsInPlayPhase(CardModel card)
+    {
+        return card.Owner?.PlayerCombatState?.Phase == PlayerTurnPhase.Play;
+    }
+
+    /// <summary>
+    /// NHandCardHolder.Flash: a quick pulse behind the card when it changes under the teammate's hands, such as being
+    /// upgraded or having its cost or keywords changed.
+    /// </summary>
+    private void Flash(CardModel card)
+    {
+        if (!_flashes.TryGetValue(card, out Control? flash) || !GodotObject.IsInstanceValid(flash) || !IsInsideTree())
+        {
+            return;
+        }
+        flash.Scale = Vector2.One;
+        flash.Modulate = ShouldGlowGold(card) ? NCardHighlight.gold
+            : ShouldGlowRed(card) ? NCardHighlight.red
+            : NCardHighlight.playableColor;
+        if (_flashTweens.Remove(card, out Tween? running))
+        {
+            running.Kill();
+        }
+        Tween tween = flash.CreateTween();
+        tween.TweenProperty(flash, "modulate:a", 0.6, 0.15);
+        tween.TweenProperty(flash, "modulate:a", 0, 0.3);
+        _flashTweens[card] = tween;
+    }
+
+    /// <summary>
+    /// Our own copy of the pulse a hand card holder keeps behind its card. The holder scene is what the real hand
+    /// builds each card on, so it is already loaded in combat; we take just its Flash node, as a plain copy with no
+    /// script or signals, and let go of the rest.
+    /// </summary>
+    private static Control? CreateFlash()
+    {
+        Node? holder = null;
+        try
+        {
+            holder = PreloadManager.Cache.GetScene(SceneHelper.GetScenePath("cards/holders/hand_card_holder"))
+                .Instantiate(PackedScene.GenEditState.Disabled);
+            if (holder.GetNodeOrNull<Control>("Flash")?.Duplicate(0) is not Control flash)
+            {
+                return null;
+            }
+            flash.Name = "SpectateFlash";
+            flash.Modulate = new Color(flash.Modulate, 0f);
+            IgnoreMouse(flash);
+            return flash;
+        }
+        catch (Exception e)
+        {
+            MainFile.Logger.Error($"Failed to build a card flash for the mirrored hand: {e}");
+            return null;
+        }
+        finally
+        {
+            holder?.Free();
+        }
+    }
+
+    private static void WatchForFlash(CardModel card, Action flash)
+    {
+        card.Upgraded += flash;
+        card.KeywordsChanged += flash;
+        card.ReplayCountChanged += flash;
+        card.AfflictionChanged += flash;
+        card.EnergyCostChanged += flash;
+        card.StarCostChanged += flash;
+    }
+
+    private static void StopWatchingForFlash(CardModel card, Action flash)
+    {
+        card.Upgraded -= flash;
+        card.KeywordsChanged -= flash;
+        card.ReplayCountChanged -= flash;
+        card.AfflictionChanged -= flash;
+        card.EnergyCostChanged -= flash;
+        card.StarCostChanged -= flash;
     }
 
     private void Rebuild()
@@ -475,11 +607,15 @@ public partial class NSpectateHand : Control
                 PivotOffset = Vector2.Zero
             };
             _cardLayer.AddChildSafely(slot);
-            slot.AddChildSafely(node);
-            if (node.IsNodeReady())
+            // Ahead of the card, as in the holder scene, so the pulse shows round its edges and not over its face.
+            Control? flash = CreateFlash();
+            if (flash != null)
             {
-                node.UpdateVisuals(PileType.Hand, CardPreviewMode.Normal);
+                slot.AddChildSafely(flash);
+                _flashes[card] = flash;
             }
+            slot.AddChildSafely(node);
+            UpdateCard(node);
 
             // The hover target is a sibling of the card rather than a child of it, and it stays at the card's resting
             // place in the fan. Riding along with the card meant that lifting it on hover pulled the target out from
@@ -500,6 +636,10 @@ public partial class NSpectateHand : Control
             _slots[card] = slot;
             _cards[card] = node;
             _hitboxes[card] = hitbox;
+
+            Action onChanged = () => Flash(captured);
+            WatchForFlash(card, onChanged);
+            _flashHandlers[card] = onChanged;
         }
 
         if (_remoteHovered != null && !_slots.ContainsKey(_remoteHovered))
@@ -791,6 +931,17 @@ public partial class NSpectateHand : Control
 
     private void Release(CardModel card)
     {
+        if (_flashHandlers.Remove(card, out Action? onChanged))
+        {
+            StopWatchingForFlash(card, onChanged);
+        }
+        if (_flashTweens.Remove(card, out Tween? flashTween))
+        {
+            flashTween.Kill();
+        }
+        // The flash is ours, not pooled, and goes down with the slot below.
+        _flashes.Remove(card);
+
         // Return the card to the pool first: QueueFreeSafely detaches an IPoolable from its parent immediately and
         // defers only the pool hand-back. Freeing the slot first would take the card down with it and lose the node.
         if (_cards.Remove(card, out NCard? node) && GodotObject.IsInstanceValid(node))

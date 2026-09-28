@@ -30,7 +30,7 @@ public static class CardSelectPatches
     public static void AfterFromHand(Player player, CardSelectorPrefs prefs, Func<CardModel, bool>? filter,
         Task<IEnumerable<CardModel>> __result)
     {
-        Track(player, prefs.Prompt, filter, __result);
+        Track(player, prefs.Prompt, filter, prefs.ShouldGlowGold, __result);
     }
 
     /// <summary>Builds its own prompt and filter inside, so these are the same ones it hands to the real hand.</summary>
@@ -38,10 +38,12 @@ public static class CardSelectPatches
     [HarmonyPatch(nameof(CardSelectCmd.FromHandForUpgrade))]
     public static void AfterFromHandForUpgrade(Player player, Task<CardModel?> __result)
     {
-        Track(player, new LocString("gameplay_ui", "CHOOSE_CARD_UPGRADE_HEADER"), c => c.IsUpgradable, __result);
+        Track(player, new LocString("gameplay_ui", "CHOOSE_CARD_UPGRADE_HEADER"), c => c.IsUpgradable, null,
+            __result);
     }
 
-    private static void Track(Player player, LocString prompt, Func<CardModel, bool>? filter, Task task)
+    private static void Track(Player player, LocString prompt, Func<CardModel, bool>? filter,
+        Func<CardModel, bool>? glowGold, Task task)
     {
         try
         {
@@ -52,7 +54,8 @@ public static class CardSelectPatches
             HandSelection.Choice choice = new()
             {
                 Prompt = prompt.GetFormattedText(),
-                Filter = filter
+                Filter = filter,
+                GlowGold = glowGold
             };
             HandSelection.Begin(player, choice);
             TaskWatch.WhenDone(task, () => HandSelection.End(player, choice));

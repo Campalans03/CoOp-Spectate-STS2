@@ -25,6 +25,12 @@ public static class HandSelection
         public Func<CardModel, bool>? Filter { get; init; }
 
         /// <summary>
+        /// Which cards glow gold while the choice is open, in place of the usual rule, the way
+        /// NPlayerHand.SelectModeGoldGlowOverride does it. Null leaves the usual rule in charge.
+        /// </summary>
+        public Func<CardModel, bool>? GlowGold { get; init; }
+
+        /// <summary>
         /// Whether a card in their hand can be picked. The game hides the rest while choosing, and so do we. A filter
         /// that throws counts as "yes": showing one card too many beats losing the hand.
         /// </summary>
@@ -37,6 +43,23 @@ public static class HandSelection
             catch (Exception)
             {
                 return true;
+            }
+        }
+
+        /// <summary>Whether the choice makes a card glow gold, or null when it leaves that to the usual rule.</summary>
+        public bool? GlowsGold(CardModel card)
+        {
+            if (GlowGold == null)
+            {
+                return null;
+            }
+            try
+            {
+                return GlowGold(card);
+            }
+            catch (Exception)
+            {
+                return false;
             }
         }
     }
