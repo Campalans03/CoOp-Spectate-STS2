@@ -177,6 +177,15 @@ Every player draws in their own colour, and the lines fade away on their own a m
 [*][b]Fully configurable[/b]: every feature can be turned on or off in the mod settings.
 [*]Requires [url=https://steamcommunity.com/sharedfiles/filedetails/?id=3737335127]BaseLib[/url].
 [/list]
+
+[h2]Found a bug?[/h2]
+The mod can put together an error report for you, so there's no need to dig through log files.
+[olist]
+[*]Open [b]Mod Configuration[/b] (on the main menu, or in Settings) and pick [b]Co-op Spectate[/b].
+[*]At the bottom, under [b]Troubleshooting[/b], click [b]Copy error report[/b]. The button says "Copied!".
+[*]Paste it in a comment below, and tell me what you were doing when it went wrong (in combat, in the shop, on which turn...). If it's too long for a comment, paste it on [url=https://pastebin.com]pastebin.com[/url] and post the link instead.
+[/olist]
+The report covers the game session you're in and the one before it, so you can copy it right after the bug or after restarting the game once. It contains the game and mod versions, the list of your other mods, and the errors from those sessions. It never includes your Steam ID or your Windows user name.
 "@
 
 $lines = @(
