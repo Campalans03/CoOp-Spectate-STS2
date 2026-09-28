@@ -1,4 +1,7 @@
 using BaseLib.Config;
+using BaseLib.Config.UI;
+using Godot;
+using MegaCrit.Sts2.Core.Localization;
 
 namespace SpectateMod.SpectateModCode;
 
@@ -115,4 +118,37 @@ public class SpectateConfig : SimpleModConfig
 
     /// <summary>A small copy of our own energy orb next to the teammate's, so we can see what we have left.</summary>
     public static bool ShowOwnEnergy { get; set; } = true;
+
+    /// <summary>
+    /// Puts <see cref="ErrorReport" /> on the clipboard so a player can paste it into a bug report, and says so on the
+    /// button for a moment, since nothing else on screen changes.
+    /// </summary>
+    [ConfigSection("Troubleshooting")]
+    [ConfigHoverTip]
+    [ConfigButton("CopyErrorReportButton")]
+    public static void CopyErrorReport(NConfigButton button)
+    {
+        string report = ErrorReport.Build();
+        DisplayServer.ClipboardSet(report);
+        MainFile.Logger.Info($"Copied an error report to the clipboard ({report.Length} characters)");
+
+        Label? label = button.GetNodeOrNull<Label>("Label");
+        if (label == null)
+        {
+            return;
+        }
+        string original = label.Text;
+        label.Text = copiedText;
+        button.GetTree().CreateTimer(2.0).Timeout += () =>
+        {
+            if (GodotObject.IsInstanceValid(label) && label.Text == copiedText)
+            {
+                label.Text = original;
+            }
+        };
+    }
+
+    private static string copiedText =>
+        LocString.GetIfExists("settings_ui", "SPECTATEMOD-COPY_ERROR_REPORT_COPIED.title")?.GetFormattedText()
+        ?? "Copied!";
 }

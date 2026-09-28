@@ -5,6 +5,12 @@
   "SPECTATEMOD-WHAT_GETS_REPLACED.title": "What gets replaced",
   "SPECTATEMOD-INDICATORS.title": "Indicators",
   "SPECTATEMOD-HOTKEYS.title": "Hotkeys",
+  "SPECTATEMOD-TROUBLESHOOTING.title": "Troubleshooting",
+
+  "SPECTATEMOD-COPY_ERROR_REPORT.title": "Report a bug",
+  "SPECTATEMOD-COPY_ERROR_REPORT.description": "Copies a short report to your clipboard: the game and mod versions, your other mods, and the errors from this session and the last one. Paste it wherever you report the bug. Steam ids and your Windows user name are left out.",
+  "SPECTATEMOD-COPY_ERROR_REPORT_BUTTON.title": "Copy error report",
+  "SPECTATEMOD-COPY_ERROR_REPORT_COPIED.title": "Copied!",
 
   "SPECTATEMOD-ENABLE_HOTKEYS.title": "Enable hotkeys",
   "SPECTATEMOD-ENABLE_HOTKEYS.description": "Spectate a player or stop spectating with the keys below.",
