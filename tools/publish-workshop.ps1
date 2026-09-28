@@ -140,7 +140,12 @@ $isNew = $itemId -eq '0'
 
 # Line breaks stay literal: a quoted VDF value may span lines, whereas a "\n" escape is not reliably expanded.
 function Format-VdfValue([string] $value) {
-    return '"' + ($value -replace '\\', '\\' -replace '"', '\"' -replace "`r`n", "`n") + '"'
+    # Steam's reader ends the value at a double quote even when it is escaped as \", silently cutting the rest of a
+    # description off, so there is no way to send one.
+    if ($value.Contains('"')) {
+        throw "A Workshop text contains a double quote, which Steam would cut the text off at: $value"
+    }
+    return '"' + ($value -replace '\\', '\\' -replace "`r`n", "`n") + '"'
 }
 
 $description = @"
@@ -182,7 +187,7 @@ Every player draws in their own colour, and the lines fade away on their own a m
 The mod can put together an error report for you, so there's no need to dig through log files.
 [olist]
 [*]Open [b]Mod Configuration[/b] (on the main menu, or in Settings) and pick [b]Co-op Spectate[/b].
-[*]At the bottom, under [b]Troubleshooting[/b], click [b]Copy error report[/b]. The button says "Copied!".
+[*]At the bottom, under [b]Troubleshooting[/b], click [b]Copy error report[/b]. The button briefly changes to Copied!
 [*]Paste it in a comment below, and tell me what you were doing when it went wrong (in combat, in the shop, on which turn...). If it's too long for a comment, paste it on [url=https://pastebin.com]pastebin.com[/url] and post the link instead.
 [/olist]
 The report covers the game session you're in and the one before it, so you can copy it right after the bug or after restarting the game once. It contains the game and mod versions, the list of your other mods, and the errors from those sessions. It never includes your Steam ID or your Windows user name.
