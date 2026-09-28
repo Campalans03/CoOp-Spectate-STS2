@@ -580,6 +580,21 @@ public partial class NSpectateScreenMirror : Control
         {
             viewUpgrades.SetTextAutoSize(new LocString("card_selection", "VIEW_UPGRADES").GetFormattedText());
         }
+        if (screen.GetNodeOrNull<NTickbox>("%Upgrades") is { } showUpgrades)
+        {
+            // The one control on the copy that is ours to use: the screen's skipped _Ready would have wired it to its
+            // grid, so wire it to ours. It only changes how we see their cards, and nothing about it goes over the
+            // network, so either of us can look at the upgrades without the other.
+            NCardGrid grid = _grid;
+            showUpgrades.IsTicked = false;
+            showUpgrades.Toggled += tickbox =>
+            {
+                if (GodotObject.IsInstanceValid(grid))
+                {
+                    grid.IsShowingUpgrades = tickbox.IsTicked;
+                }
+            };
+        }
         if (choice.Enchantment is { } enchantment)
         {
             screen.GetNodeOrNull<MegaLabel>("%EnchantmentTitle")?.SetTextAutoSize(
