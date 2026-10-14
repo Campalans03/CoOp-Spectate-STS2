@@ -1,12 +1,15 @@
 using System;
 using System.Collections.Generic;
 using Godot;
+using MegaCrit.Sts2.Core.Context;
 using MegaCrit.Sts2.Core.Entities.Multiplayer;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Map;
 using MegaCrit.Sts2.Core.Multiplayer.Game.PeerInput;
 using MegaCrit.Sts2.Core.Nodes.CommonUi;
+using MegaCrit.Sts2.Core.Nodes.Screens;
+using MegaCrit.Sts2.Core.Nodes.Screens.Capstones;
 using MegaCrit.Sts2.Core.Nodes.Screens.Map;
 using MegaCrit.Sts2.Core.Rooms;
 using MegaCrit.Sts2.Core.Runs;
@@ -115,6 +118,7 @@ public partial class NSpectateRunUi : Control
 
         this.AddChildSafely(NSpectateShopSync.Create());
         this.AddChildSafely(NSpectateGridSync.Create());
+        this.AddChildSafely(NSpectateSphereSync.Create());
     }
 
     public override void _EnterTree()
@@ -174,7 +178,8 @@ public partial class NSpectateRunUi : Control
     /// <summary>
     /// Screens we can only get to by opening them ourselves. Opening one while watching somebody means we want our own
     /// view back; leaving the spectate on would put our screen under their name. Menus (pause, settings) are left out:
-    /// they sit over everything and say nothing about whose screen is under them.
+    /// they sit over everything and say nothing about whose screen is under them. The deck counts only when it is ours:
+    /// while the deck button shows theirs (<see cref="TopBarView.ShowDeck" />), opening it is looking at theirs.
     /// </summary>
     private static readonly HashSet<NetScreenType> ownScreens = new()
     {
@@ -233,10 +238,16 @@ public partial class NSpectateRunUi : Control
             return;
         }
         _localScreen = screen;
-        if (SpectateController.IsSpectating && ownScreens.Contains(screen))
+        if (SpectateController.IsSpectating && ownScreens.Contains(screen) && !IsTeammatesDeckOpen())
         {
             SpectateController.Stop();
         }
+    }
+
+    private static bool IsTeammatesDeckOpen()
+    {
+        return NCapstoneContainer.Instance?.CurrentCapstoneScreen is NDeckViewScreen view
+               && !LocalContext.IsMe(view._player);
     }
 
     public override void _Process(double delta)
@@ -298,14 +309,16 @@ public partial class NSpectateRunUi : Control
     }
 
 
-    /// <summary>Gold, hit points and portrait; <see cref="TopBarView" /> guards each part on its own.</summary>
+    /// <summary>Gold, hit points, portrait and deck; <see cref="TopBarView" /> guards each part on its own.</summary>
     private static void ApplyTopBar(Player? viewed)
     {
-        Player? owner = viewed != null && SpectateConfig.ReplaceGoldAndHp ? viewed : SpectateController.Me;
-        if (owner != null)
+        Player? me = SpectateController.Me;
+        if (me == null)
         {
-            TopBarView.Show(owner);
+            return;
         }
+        TopBarView.Show(viewed != null && SpectateConfig.ReplaceGoldAndHp ? viewed : me);
+        TopBarView.ShowDeck(viewed != null && SpectateConfig.ReplaceDeck ? viewed : me);
     }
     /// <summary>Same idea as <see cref="ApplyRelics" />, but through a read-only copy: see <see cref="NSpectatePotionBelt" />.</summary>
     private void ApplyPotions(Player? viewed)

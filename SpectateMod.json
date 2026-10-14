@@ -3,7 +3,7 @@
   "name": "Co-op Spectate",
   "author": "JCampalans",
   "description": "Watch your co-op teammates for the whole run: their turn, their card choices, rewards, shop and events, with their cursor on top. Click a player box on the right to watch them.",
-  "version": "v1.3.1",
+  "version": "v1.4.0",
   "min_game_version": "0.107.0",
   "has_pck": true,
   "has_dll": true,

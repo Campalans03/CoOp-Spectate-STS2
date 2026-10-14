@@ -4,10 +4,15 @@ using System.Linq;
 using Godot;
 using MegaCrit.Sts2.Core.Combat;
 using MegaCrit.Sts2.Core.Context;
+using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Entities.Creatures;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Entities.UI;
+using MegaCrit.Sts2.Core.Helpers;
+using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Models.Monsters;
+using MegaCrit.Sts2.Core.Models.Powers;
+using MegaCrit.Sts2.Core.Nodes.Cards;
 using MegaCrit.Sts2.Core.Nodes.Combat;
 using MegaCrit.Sts2.Core.Nodes.Rooms;
 
@@ -15,9 +20,9 @@ namespace SpectateMod.SpectateModCode;
 
 /// <summary>
 /// Makes the combat board itself look like the watched player's: their health bar (and their pets', like Osty) stays up
-/// the way ours normally does, they step into our spot at the front while we move back among the others, and enemy
-/// intents show the damage they would take. Everything is local and cosmetic, and handing the board back to ourselves
-/// undoes it.
+/// the way ours normally does, they step into our spot at the front while we move back among the others, enemy
+/// intents show the damage they would take, and enemies show what they hold against them rather than against us.
+/// Everything is local and cosmetic, and handing the board back to ourselves undoes it.
 /// </summary>
 public static class SpectateBoard
 {
@@ -29,6 +34,15 @@ public static class SpectateBoard
 
     /// <summary>Whose health bars are shown as "ours". Null while nothing is installed.</summary>
     private static Player? _barOwner;
+
+    /// <summary>
+    /// Whose share of the enemies' per-player powers is on show (see <see cref="PowerViewer" />). Null for ours, which
+    /// is the game's own rule.
+    /// </summary>
+    private static Player? _powersAimedAt;
+
+    /// <summary>Marks the stolen cards we put in a Thieving Hopper's hand, as opposed to the one the game put there.</summary>
+    private static readonly StringName stolenCardMeta = "spectate_stolen_card";
 
     /// <summary>Who stands in our spot at the front of the board. Null while nothing is installed.</summary>
     public static Player? LayoutOwner { get; private set; }
@@ -78,6 +92,7 @@ public static class SpectateBoard
         _state = null;
         _localPlayer = null;
         _barOwner = null;
+        _powersAimedAt = null;
         LayoutOwner = null;
     }
 
@@ -95,22 +110,68 @@ public static class SpectateBoard
     }
 
     /// <summary>
+    /// The player to look at an enemy's power as, or null to leave it to the game. A few enemies keep one copy of a
+    /// power per player, each aimed at that player (The Insatiable's countdown, the card a Thieving Hopper or a Gremlin
+    /// Merc made off with), and the game only ever shows the copy aimed at us. While watching somebody, theirs shows.
+    /// </summary>
+    public static Player? PowerViewer(PowerModel power)
+    {
+        if (_state == null || _powersAimedAt == null || power.Target?.Player == null || power.Owner is not { IsEnemy: true })
+        {
+            return null;
+        }
+        return _powersAimedAt;
+    }
+
+    /// <summary>Whether an enemy's power goes up on its bar, or null when the game's own rule applies.</summary>
+    public static bool? IsPowerShown(PowerModel power)
+    {
+        Player? viewer = PowerViewer(power);
+        return viewer == null ? null : AsLocal(viewer, () => power.IsVisible);
+    }
+
+    /// <summary>What NPowerContainer.Add does once it has decided that the power shows.</summary>
+    public static void AddPowerNode(NPowerContainer container, PowerModel power)
+    {
+        NPower node = NPower.Create(power);
+        node.Container = container;
+        container._powerNodes.Add(node);
+        container.AddChildSafely(node);
+        container.UpdatePositions();
+    }
+
+    /// <summary>
     /// Runs <paramref name="action" /> with the game believing <see cref="LayoutOwner" /> is the local player, for the
-    /// few synchronous layout routines that place "me" differently from everyone else. Only ever used for positioning;
-    /// the id is put back before anything else can run.
+    /// few synchronous layout routines that place "me" differently from everyone else. Only ever used for positioning.
     /// </summary>
     public static void AsLayoutOwner(Action action)
     {
-        if (!IsLayoutSwapped)
+        if (IsLayoutSwapped)
+        {
+            AsLocal(LayoutOwner!, () =>
+            {
+                action();
+                return true;
+            });
+        }
+        else
         {
             action();
-            return;
         }
+    }
+
+    /// <summary>
+    /// Runs <paramref name="func" /> with the game believing <paramref name="player" /> is the local player, for the
+    /// synchronous routines that only ever place or show "my" copy of something. The id is put back before anything
+    /// else can run.
+    /// </summary>
+    public static T AsLocal<T>(Player player, Func<T> func)
+    {
         ulong? realId = LocalContext.NetId;
         try
         {
-            LocalContext.NetId = LayoutOwner!.NetId;
-            action();
+            LocalContext.NetId = player.NetId;
+            return func();
         }
         finally
         {
@@ -203,6 +264,21 @@ public static class SpectateBoard
         }
 
         RefreshIntents();
+
+        Player? powersAimedAt = SpectateConfig.EnemyPowersForWatched ? viewed : null;
+        if (powersAimedAt != _powersAimedAt)
+        {
+            _powersAimedAt = powersAimedAt;
+            // Each on its own: a failure in either only costs that one, not the rest of the board.
+            Safe.Run("show the enemy powers aimed at the watched player", RefreshEnemyPowers);
+            Safe.Run("show the cards stolen from the watched player", () =>
+            {
+                foreach (NCreature creature in room.CreatureNodes)
+                {
+                    ShowStolenCard(creature);
+                }
+            });
+        }
     }
 
     /// <summary>Players and their pets, in the order the room made them.</summary>
@@ -241,7 +317,10 @@ public static class SpectateBoard
             {
                 node._stateDisplay.AnimateOut();
             }
-            else if (node.Entity.IsAlive)
+            // Some pets never get a bar, like the immortal Byrdpip; AnimateIn would show theirs anyway. Not judged by
+            // IsInteractable: the game makes every pet of a teammate non-interactable, Osty included, and theirs does
+            // get a bar while they are the one on show.
+            else if (node.Entity.IsAlive && node.Entity.Monster is not { IsHealthBarVisible: false })
             {
                 node._stateDisplay.AnimateIn(HealthBarAnimMode.FromHidden);
             }
@@ -339,5 +418,93 @@ public static class SpectateBoard
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Swaps which of the enemies' per-player powers are up on their bars, once whose they are has changed. Ones
+    /// applied later go through <see cref="IsPowerShown" /> as they arrive (see <see cref="Patches.EnemyPowerPatches" />).
+    /// </summary>
+    private static void RefreshEnemyPowers()
+    {
+        foreach (NCreature creature in NCombatRoom.Instance!.CreatureNodes)
+        {
+            if (!GodotObject.IsInstanceValid(creature) || !creature.Entity.IsEnemy
+                || creature._stateDisplay?._powerContainer is not { } container || !GodotObject.IsInstanceValid(container))
+            {
+                continue;
+            }
+            List<PowerModel> powers = creature.Entity.Powers.ToList();
+            bool changed = false;
+            foreach (PowerModel power in powers.Where(p => p.Target?.Player != null))
+            {
+                bool shown = IsPowerShown(power) ?? power.IsVisible;
+                NPower? node = container._powerNodes.FirstOrDefault(n => n.Model == power);
+                if (shown && node == null)
+                {
+                    AddPowerNode(container, power);
+                    changed = true;
+                }
+                else if (!shown && node != null)
+                {
+                    // What NPowerContainer.Remove does.
+                    container._powerNodes.Remove(node);
+                    node.QueueFreeSafely();
+                    changed = true;
+                }
+            }
+            if (changed)
+            {
+                // New icons were added at the end; put them back in the order the powers were applied.
+                container._powerNodes.Sort((a, b) => powers.IndexOf(a.Model).CompareTo(powers.IndexOf(b.Model)));
+                container.UpdatePositions();
+            }
+        }
+    }
+
+    /// <summary>
+    /// A Thieving Hopper holds up the card it stole, but the game only ever puts ours in its hand. While watching
+    /// somebody it holds up theirs instead. Ours is only hidden, and comes back with our own view.
+    /// </summary>
+    public static void ShowStolenCard(NCreature hopper)
+    {
+        if (_localPlayer == null || !GodotObject.IsInstanceValid(hopper) || hopper.Entity.Monster is not ThievingHopper
+            || hopper.GetSpecialNode<Marker2D>("%StolenCardPos") is not { } spot)
+        {
+            return;
+        }
+        Player holder = _powersAimedAt ?? _localPlayer;
+        CardModel? wanted = hopper.Entity.Powers.OfType<SwipePower>()
+            .FirstOrDefault(s => s.Target?.Player == holder)?.StolenCard;
+
+        bool shown = false;
+        foreach (NCard card in spot.GetChildren().OfType<NCard>())
+        {
+            bool show = !shown && card.Model == wanted;
+            if (!show && card.HasMeta(stolenCardMeta))
+            {
+                // Card nodes go back to a pool to be used again, and the mark must not go with it.
+                card.RemoveMeta(stolenCardMeta);
+                card.QueueFreeSafely();
+                continue;
+            }
+            card.Visible = show;
+            shown |= show;
+        }
+        // Our own card is the game's to put up.
+        if (shown || wanted == null || holder == _localPlayer)
+        {
+            return;
+        }
+
+        // The way ThievingHopper.ThieveryMove puts ours there.
+        NCard? stolen = NCard.Create(wanted);
+        if (stolen == null)
+        {
+            return;
+        }
+        stolen.SetMeta(stolenCardMeta, true);
+        spot.AddChildSafely(stolen);
+        stolen.Position += stolen.Size * 0.5f;
+        stolen.UpdateVisuals(PileType.Deck, CardPreviewMode.Normal);
     }
 }

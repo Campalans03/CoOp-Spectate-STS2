@@ -95,6 +95,9 @@ public class SpectateConfig : SimpleModConfig
     /// <summary>Show the watched player's gold, hit points and portrait in the top bar instead of ours.</summary>
     public static bool ReplaceGoldAndHp { get; set; } = true;
 
+    /// <summary>Show the watched player's deck on the top bar's deck button instead of ours, and open theirs from it.</summary>
+    public static bool ReplaceDeck { get; set; } = true;
+
     /// <summary>Keep the watched player's health bar, and their pets', up all the time the way ours normally is.</summary>
     public static bool ReplaceHealthBars { get; set; } = true;
 
@@ -103,6 +106,12 @@ public class SpectateConfig : SimpleModConfig
 
     /// <summary>Show enemy attack intents with the damage the watched player would take, not us.</summary>
     public static bool IntentsForWatched { get; set; } = true;
+
+    /// <summary>
+    /// Show the enemy powers aimed at the watched player rather than at us, like The Insatiable's countdown, and the
+    /// card a Thieving Hopper stole from them.
+    /// </summary>
+    public static bool EnemyPowersForWatched { get; set; } = true;
 
     public static bool MirrorHover { get; set; } = true;
 

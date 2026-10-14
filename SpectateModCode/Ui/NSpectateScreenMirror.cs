@@ -8,8 +8,11 @@ using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Entities.Merchant;
 using MegaCrit.Sts2.Core.Entities.Multiplayer;
 using MegaCrit.Sts2.Core.Entities.Players;
+using MegaCrit.Sts2.Core.Entities.RestSite;
 using MegaCrit.Sts2.Core.Events;
+using MegaCrit.Sts2.Core.Events.Custom.CrystalSphereEvent;
 using MegaCrit.Sts2.Core.Helpers;
+using MegaCrit.Sts2.Core.HoverTips;
 using MegaCrit.Sts2.Core.Localization;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Multiplayer.Game;
@@ -21,7 +24,9 @@ using MegaCrit.Sts2.Core.Nodes.Cards.Holders;
 using MegaCrit.Sts2.Core.Nodes.HoverTips;
 using MegaCrit.Sts2.Core.Nodes;
 using MegaCrit.Sts2.Core.Nodes.Events;
+using MegaCrit.Sts2.Core.Nodes.Events.Custom.CrystalSphere;
 using MegaCrit.Sts2.Core.Nodes.Multiplayer;
+using MegaCrit.Sts2.Core.Nodes.RestSite;
 using MegaCrit.Sts2.Core.Nodes.Rewards;
 using MegaCrit.Sts2.Core.Nodes.Screens;
 using MegaCrit.Sts2.Core.Nodes.Screens.CardSelection;
@@ -29,21 +34,25 @@ using MegaCrit.Sts2.Core.Nodes.Screens.Map;
 using MegaCrit.Sts2.Core.Nodes.Rooms;
 using MegaCrit.Sts2.Core.Nodes.Screens.Overlays;
 using MegaCrit.Sts2.Core.Nodes.Screens.Shops;
+using MegaCrit.Sts2.Core.Random;
 using MegaCrit.Sts2.Core.Rewards;
 using MegaCrit.Sts2.Core.Rooms;
 using MegaCrit.Sts2.Core.Runs;
+using SpectateMod.SpectateModCode.Net;
 using SpectateMod.SpectateModCode.Patches;
 
 namespace SpectateMod.SpectateModCode.Ui;
 
 /// <summary>
-/// A read-only copy of the screen the watched player has up, drawn in place of ours: their rewards, or the cards they
-/// are picking one of. Their cursor is drawn on top, so you can see what they are pointing at.
+/// A read-only copy of the screen the watched player has up, drawn in place of ours: their rewards, the cards they are
+/// picking one of, their shop, their event or Crystal Sphere, their options at the campfire. Their cursor is drawn on
+/// top, so you can see what they are pointing at.
 /// <para>
 /// Each screen is the game's own scene with its code switched off (see <see cref="MirrorScreenPatches" />), so it looks
 /// exactly like theirs and shares its layout: their cursor lands on the same card it is on for them. The contents are
 /// filled in by hand from pieces that are safe on their own: the game's reward buttons (clicks on a teammate's are
-/// stopped by <see cref="RewardButtonPatches" />) and bare card nodes.
+/// stopped by <see cref="RewardButtonPatches" />) and bare card nodes. The few copies that keep their own code (the
+/// sphere, the campfire's buttons) get a sheet over them that keeps our mouse off.
 /// </para>
 /// <para>
 /// It sits in the global UI right above the overlay stack, where the real screens live: under the top bar, the party
@@ -62,7 +71,9 @@ public partial class NSpectateScreenMirror : Control
         Shop,
         Grid,
         Event,
-        Bundles
+        Bundles,
+        Sphere,
+        RestSite
     }
 
     private const string merchantInventoryScene = "res://scenes/merchant/merchant_inventory.tscn";
@@ -117,7 +128,32 @@ public partial class NSpectateScreenMirror : Control
     private readonly Dictionary<CardModel, Control> _hitboxes = new();
     private CardModel? _localHovered;
 
+    private Control? _inputBlocker;
+
+    /// <summary>Where each card's tips hang from: the full-size card's rect, on the card's slot.</summary>
+    private readonly Dictionary<CardModel, Control> _tipAnchors = new();
+    private CardModel? _tipCard;
+
+    private NCrystalSphereScreen? _sphere;
+    private CrystalSphereMinigame? _sphereGame;
+    private int _sphereHovered = -1;
+    private bool _sphereFinished;
+
+    private Control? _restChoicesScreen;
+    private Control? _restChoices;
+    private MegaRichTextLabel? _restDescription;
+    private readonly List<RestSiteOption> _shownRestOptions = new();
+    private readonly List<NRestSiteButton> _restButtons = new();
+    private int _restHovered = -1;
+    private bool _restChoosing;
+    private RestSiteOption? _restChosen;
+    private RestSiteOption? _restDescribed;
+    private bool _restChoicesShown;
+    private Tween? _restChoicesTween;
+    private Tween? _restDescriptionTween;
+
     private readonly Dictionary<CanvasItem, Color> _hidden = new();
+    private readonly HashSet<CanvasItem> _switchedOff = new();
 
     public static NSpectateScreenMirror Create()
     {
@@ -237,6 +273,12 @@ public partial class NSpectateScreenMirror : Control
                 case EventModel eventModel:
                     FillEvent(eventModel);
                     break;
+                case SphereState.Session sphere:
+                    FillSphere(sphere);
+                    break;
+                case IReadOnlyList<RestSiteOption> restOptions:
+                    FillRestSite(restOptions);
+                    break;
             }
         }
         catch (Exception e)
@@ -280,11 +322,54 @@ public partial class NSpectateScreenMirror : Control
         {
             return (Mode.Shop, shop);
         }
+        // Before the event: the sphere is played inside one, and for us their event is already over.
+        if (OpenSphere(player) is { } sphere)
+        {
+            return (Mode.Sphere, sphere);
+        }
         if (OpenEvent(player) is { } eventModel)
         {
             return (Mode.Event, eventModel);
         }
+        if (OpenRestSite(player) is { } restOptions)
+        {
+            return (Mode.RestSite, restOptions);
+        }
         return (Mode.None, null);
+    }
+
+    /// <summary>
+    /// The teammate's Crystal Sphere, while they are playing it. The minigame only runs on their machine: on ours their
+    /// event jumps straight to its end. So everything comes from them (<see cref="SphereState" />), and only with the
+    /// mod on their side. Not while something of theirs covers it, like their deck: the sphere's own screen reports no
+    /// screen of its own, so it reads as the room.
+    /// </summary>
+    private SphereState.Session? OpenSphere(Player player)
+    {
+        return SpectateController.Run?.CurrentRoom is EventRoom && IsInRoom(player) ? SphereState.Get(player) : null;
+    }
+
+    /// <summary>
+    /// The teammate's options at the campfire we are all sitting at, while they are looking at it. Every client builds
+    /// every player's options on the way in and hears which one each player points at and picks, so this needs nothing
+    /// from their side. The same list object lasts the whole visit, shrinking as they use options up.
+    /// </summary>
+    private IReadOnlyList<RestSiteOption>? OpenRestSite(Player player)
+    {
+        if (SpectateController.Run?.CurrentRoom is not RestSiteRoom || NRestSiteRoom.Instance == null
+                                                                     || !IsInRoom(player))
+        {
+            return null;
+        }
+        try
+        {
+            return RunManager.Instance.RestSiteSynchronizer.GetOptionsForPlayer(player);
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            // Asked before the campfire has handed out options.
+            return null;
+        }
     }
 
     /// <summary>
@@ -432,10 +517,33 @@ public partial class NSpectateScreenMirror : Control
                     return;
                 }
                 break;
+            case Mode.Sphere:
+                OpenSphereScreen((SphereState.Session)_source!);
+                break;
+            case Mode.RestSite:
+                OpenRestSiteChoices();
+                break;
             default:
                 return;
         }
         ResetCursor();
+    }
+
+    /// <summary>
+    /// A clear sheet over a copy whose own code runs (the sphere, the rest site buttons), so our mouse never reaches it:
+    /// a click there would play the copy as if it were ours. Added after the copy and before the cursor, so the cursor
+    /// still draws on top.
+    /// </summary>
+    private void BlockInput()
+    {
+        Control sheet = new()
+        {
+            Name = "MirrorInputBlocker",
+            MouseFilter = MouseFilterEnum.Stop
+        };
+        sheet.SetAnchorsPreset(LayoutPreset.FullRect);
+        this.AddChildSafely(sheet);
+        _inputBlocker = sheet;
     }
 
     /// <summary>
@@ -744,6 +852,345 @@ public partial class NSpectateScreenMirror : Control
         }
     }
 
+    private const string crystalSphereScene = "res://scenes/events/custom/crystal_sphere/crystal_sphere_screen.tscn";
+
+    /// <summary>
+    /// Their sphere, in the game's own screen run on a stand-in minigame laid out like theirs: the screen builds its
+    /// cells and what lies under them from the stand-in, and clears its fog as the stand-in's cells clear. The stand-in
+    /// is only ever told which cells are clear and what the counters say; nothing on it is played, so nothing it holds
+    /// is ever paid out (a curse coming to light the normal way adds itself to its owner's deck). The screen's own code
+    /// runs, so our mouse is kept off it.
+    /// </summary>
+    private void OpenSphereScreen(SphereState.Session session)
+    {
+        // The constructor lays out things of its own with this throwaway generator, and clears the cells around the
+        // corners, outside the sphere, just as theirs did. Its things are swapped for theirs below.
+        CrystalSphereMinigame game = new(_player!, new Rng(0u), session.Divinations);
+        CrystalSphereCell[,] cells = new CrystalSphereCell[session.Width, session.Height];
+        for (int x = 0; x < session.Width; x++)
+        {
+            for (int y = 0; y < session.Height; y++)
+            {
+                cells[x, y] = new CrystalSphereCell(x, y)
+                {
+                    IsHidden = x >= game.GridSize.X || y >= game.GridSize.Y || game.cells[x, y].IsHidden
+                };
+            }
+        }
+        game._items.Clear();
+        foreach (SpectateSphereItem placed in session.Items)
+        {
+            CrystalSphereItem item = CrystalSphereItem.FromSerializable(placed.item, _player!);
+            item.Position = new Vector2I(placed.x, placed.y);
+            for (int i = 0; i < item.Size.X; i++)
+            {
+                for (int j = 0; j < item.Size.Y; j++)
+                {
+                    int x = placed.x + i;
+                    int y = placed.y + j;
+                    if (x < session.Width && y < session.Height && cells[x, y].Item == null)
+                    {
+                        cells[x, y].SetItem(item);
+                    }
+                }
+            }
+            game._items.Add(item);
+        }
+        game.cells = cells;
+        MirrorScreenPatches.Register(game);
+
+        NCrystalSphereScreen screen = PreloadManager.Cache.GetScene(crystalSphereScene)
+            .Instantiate<NCrystalSphereScreen>(PackedScene.GenEditState.Disabled);
+        screen._entity = game;
+        screen.Name = "MirrorCrystalSphere";
+        this.AddChildSafely(screen);
+        _screen = screen;
+        _sphere = screen;
+        _sphereGame = game;
+        _sphereHovered = -1;
+        _sphereFinished = false;
+        // Their keys would switch the stand-in's tool, and with it what we show of theirs, and a controller could walk
+        // into the cells; the mouse is kept off by the sheet.
+        screen._bigDivinationButton.SetHotkeys(Array.Empty<string>());
+        screen._smallDivinationButton.SetHotkeys(Array.Empty<string>());
+        foreach (Control control in screen.FindChildren("*", owned: false).OfType<Control>())
+        {
+            control.FocusMode = FocusModeEnum.None;
+        }
+        BlockInput();
+    }
+
+    /// <summary>
+    /// Brings the stand-in up to what they last sent: the cells they have cleared (the screen fades the fog off them),
+    /// the divinations left, the tool in their hand and the cells it would reach from where they point. The crystal
+    /// ball's lines are left out, as with an ancient's: each client picks them at random.
+    /// </summary>
+    private void FillSphere(SphereState.Session session)
+    {
+        if (_sphere == null || _sphereGame == null || !GodotObject.IsInstanceValid(_sphere))
+        {
+            return;
+        }
+        CrystalSphereMinigame game = _sphereGame;
+        Vector2I size = game.GridSize;
+        for (int x = 0; x < size.X; x++)
+        {
+            for (int y = 0; y < size.Y; y++)
+            {
+                if (session.Revealed[y * size.X + x] && game.cells[x, y].IsHidden)
+                {
+                    game.cells[x, y].IsHidden = false;
+                }
+            }
+        }
+        if (game.DivinationCount != session.Divinations)
+        {
+            game.DivinationCount = session.Divinations;
+        }
+
+        CrystalSphereMinigame.CrystalSphereToolType tool = session.SmallTool
+            ? CrystalSphereMinigame.CrystalSphereToolType.Small
+            : CrystalSphereMinigame.CrystalSphereToolType.Big;
+        if (game.CrystalSphereTool != tool)
+        {
+            game.SetTool(tool);
+        }
+        _sphere._bigDivinationButton.SetActive(!session.SmallTool);
+        _sphere._smallDivinationButton.SetActive(session.SmallTool);
+
+        int hovered = game.IsFinished ? -1 : session.Hovered;
+        if (hovered != _sphereHovered)
+        {
+            _sphereHovered = hovered;
+            if (hovered < 0)
+            {
+                game.UnsetHoveredCell();
+            }
+            else
+            {
+                game.SetHoveredCell(game.cells[hovered % size.X, hovered / size.X]);
+            }
+        }
+
+        if (game.IsFinished && !_sphereFinished)
+        {
+            // What the screen does when its minigame finishes, minus what belongs to its player: the proceed button
+            // and travel on the map.
+            _sphereFinished = true;
+            _sphere._bigDivinationButton.Visible = false;
+            _sphere._smallDivinationButton.Visible = false;
+            _sphere._divinationsLeftLabel.Visible = false;
+            _sphere._instructionsContainer.Visible = false;
+        }
+    }
+
+    private const string restSiteScene = "res://scenes/rooms/rest_site_room.tscn";
+
+    /// <summary>
+    /// The choices half of the rest site, from the game's own room scene with its code switched off: the prompt, a row
+    /// for their options and the line that describes the one they point at. The room itself, with the campfire and
+    /// everyone around it, is the one we are already in, and shows through.
+    /// </summary>
+    private void OpenRestSiteChoices()
+    {
+        NRestSiteRoom room = Instantiate<NRestSiteRoom>(restSiteScene);
+        room.GetNode<Control>("BgContainer").Visible = false;
+        room.GetNode<Control>("%ProceedButton").Visible = false;
+        room.GetNode<MegaLabel>("%Header").SetTextAutoSize(new LocString("rest_site_ui", "PROMPT").GetFormattedText());
+        _restChoicesScreen = room.GetNode<Control>("%ChoicesScreen");
+        _restChoices = room.GetNode<Control>("%ChoicesContainer");
+        _restDescription = room.GetNode<MegaRichTextLabel>("%Description");
+        _restDescription.Modulate = Colors.Transparent;
+        _shownRestOptions.Clear();
+        _restButtons.Clear();
+        _restHovered = -1;
+        _restChoosing = false;
+        _restChosen = null;
+        _restDescribed = null;
+        _restChoicesShown = true;
+        // The buttons run their own code, and a click would pick the option as if it were ours.
+        BlockInput();
+
+        RestSiteSynchronizer sync = RunManager.Instance.RestSiteSynchronizer;
+        sync.BeforePlayerOptionChosen += OnRestSiteOptionChosen;
+        sync.AfterPlayerOptionChosen += OnRestSiteOptionDone;
+    }
+
+    /// <summary>
+    /// They picked an option: their choices fade out while it plays out, as on their screen. Raised from inside the
+    /// game carrying out their pick, so it only takes notes; <see cref="FillRestSite" /> acts on them next frame.
+    /// </summary>
+    private void OnRestSiteOptionChosen(RestSiteOption option, ulong playerId)
+    {
+        if (_mode == Mode.RestSite && playerId == _player?.NetId)
+        {
+            _restChoosing = true;
+            _restChosen = option;
+        }
+    }
+
+    /// <summary>Done; what is left of their options comes back, if anything is.</summary>
+    private void OnRestSiteOptionDone(RestSiteOption option, bool success, ulong playerId)
+    {
+        if (_mode == Mode.RestSite && playerId == _player?.NetId)
+        {
+            _restChoosing = false;
+        }
+    }
+
+    private void CloseRestSiteChoices()
+    {
+        if (_restChoicesScreen != null)
+        {
+            try
+            {
+                RestSiteSynchronizer sync = RunManager.Instance.RestSiteSynchronizer;
+                sync.BeforePlayerOptionChosen -= OnRestSiteOptionChosen;
+                sync.AfterPlayerOptionChosen -= OnRestSiteOptionDone;
+            }
+            catch (Exception)
+            {
+                // The run can already be gone on the way out; then there is nothing left to listen to.
+            }
+        }
+        _restChoicesTween?.Kill();
+        _restDescriptionTween?.Kill();
+        _restChoicesTween = null;
+        _restDescriptionTween = null;
+        _restChoicesScreen = null;
+        _restChoices = null;
+        _restDescription = null;
+        _shownRestOptions.Clear();
+        _restButtons.Clear();
+        _restHovered = -1;
+        _restChoosing = false;
+        _restChosen = null;
+        _restDescribed = null;
+    }
+
+    /// <summary>
+    /// Keeps the row in step with theirs: the options they have left, the one they are pointing at raised the way a
+    /// hovered button raises, and its description underneath.
+    /// </summary>
+    private void FillRestSite(IReadOnlyList<RestSiteOption> options)
+    {
+        if (_restChoices == null || _restChoicesScreen == null || _player == null
+            || !GodotObject.IsInstanceValid(_restChoices))
+        {
+            return;
+        }
+        if (!options.SequenceEqual(_shownRestOptions))
+        {
+            foreach (NRestSiteButton old in _restButtons)
+            {
+                old.QueueFreeSafely();
+            }
+            _restButtons.Clear();
+            foreach (RestSiteOption option in options)
+            {
+                NRestSiteButton button = NRestSiteButton.Create(option);
+                _restChoices.AddChildSafely(button);
+                // A controller could walk into it otherwise; the mouse is kept off by the sheet.
+                button.FocusMode = FocusModeEnum.None;
+                _restButtons.Add(button);
+            }
+            _shownRestOptions.Clear();
+            _shownRestOptions.AddRange(options);
+            _restHovered = -1;
+        }
+
+        bool showChoices = !_restChoosing && options.Count > 0;
+        if (showChoices != _restChoicesShown)
+        {
+            // NRestSiteRoom.ShowChoices and HideChoices.
+            _restChoicesShown = showChoices;
+            _restChoicesTween?.Kill();
+            _restChoicesTween = _restChoicesScreen.CreateTween();
+            _restChoicesTween.TweenProperty(_restChoicesScreen, "modulate:a", showChoices ? 1f : 0f, 0.5)
+                .SetEase(Tween.EaseType.Out).SetTrans(Tween.TransitionType.Cubic);
+        }
+
+        int? pointedAt = _restChoosing ? null : RunManager.Instance.RestSiteSynchronizer.GetHoveredOptionIndex(_player.NetId);
+        int hovered = pointedAt is { } index && index < _restButtons.Count ? index : -1;
+        if (hovered != _restHovered)
+        {
+            if (_restHovered >= 0 && _restHovered < _restButtons.Count)
+            {
+                RaiseRestSiteButton(_restButtons[_restHovered], false);
+            }
+            _restHovered = hovered;
+            if (hovered >= 0)
+            {
+                RaiseRestSiteButton(_restButtons[hovered], true);
+            }
+        }
+
+        // The line under the row (NRestSiteButton.RefreshTextState): the option being carried out, else the one
+        // pointed at, else nothing.
+        RestSiteOption? described = _restChoosing ? _restChosen : hovered >= 0 ? _restButtons[hovered].Option : null;
+        if (described != _restDescribed)
+        {
+            _restDescribed = described;
+            ShowRestDescription(described);
+        }
+    }
+
+    private void ShowRestDescription(RestSiteOption? option)
+    {
+        if (_restDescription == null || !GodotObject.IsInstanceValid(_restDescription))
+        {
+            return;
+        }
+        _restDescriptionTween?.Kill();
+        if (option != null)
+        {
+            _restDescription.Modulate = Colors.White;
+            _restDescription.Text = option.Description.GetFormattedText();
+            return;
+        }
+        // NRestSiteRoom.FadeOutOptionDescription.
+        _restDescriptionTween = _restDescription.CreateTween();
+        _restDescriptionTween.TweenProperty(_restDescription, "modulate:a", 0f, 1.0)
+            .SetEase(Tween.EaseType.Out).SetTrans(Tween.TransitionType.Expo);
+    }
+
+    /// <summary>
+    /// What a rest site button does to itself on focus and unfocus (NRestSiteButton.OnFocus and OnUnfocus), without the
+    /// rest of focusing: no sound, and no writing into our own room's description.
+    /// </summary>
+    private static void RaiseRestSiteButton(NRestSiteButton button, bool raised)
+    {
+        if (!GodotObject.IsInstanceValid(button) || !button.IsNodeReady())
+        {
+            return;
+        }
+        button._currentTween?.Kill();
+        Tween tween = button.CreateTween().SetParallel();
+        button._currentTween = tween;
+        if (raised)
+        {
+            tween.TweenProperty(button._visuals, "scale", Vector2.One * 1.1f, 0.05);
+            tween.TweenProperty(button._outline, "scale", Vector2.One, 0.05);
+            tween.TweenProperty(button._label, "position", button._labelPosition + new Vector2(0f, 6f), 0.05);
+            if (!button._isUnclickable)
+            {
+                button._hsv.SetShaderParameter(NRestSiteButton._v, 1.2f);
+            }
+            return;
+        }
+        tween.TweenProperty(button._visuals, "scale", Vector2.One, 1.0)
+            .SetEase(Tween.EaseType.Out).SetTrans(Tween.TransitionType.Expo);
+        tween.TweenProperty(button._label, "position", button._labelPosition, 1.0)
+            .SetEase(Tween.EaseType.Out).SetTrans(Tween.TransitionType.Expo);
+        tween.TweenProperty(button._outline, "scale", Vector2.One * 0.9f, 1.0)
+            .SetEase(Tween.EaseType.Out).SetTrans(Tween.TransitionType.Expo);
+        if (!button._isUnclickable)
+        {
+            tween.TweenMethod(Callable.From<float>(button.UpdateShaderParam), 1.2f, 1f, 1.0)
+                .SetEase(Tween.EaseType.Out).SetTrans(Tween.TransitionType.Expo);
+        }
+    }
+
     /// <summary>Distance between packs, and between the cards of an opened pack (NChooseABundleSelectionScreen).</summary>
     private const float bundleSpacing = 400f;
 
@@ -942,6 +1389,28 @@ public partial class NSpectateScreenMirror : Control
                 slot.ZIndex = card == focus ? 1 : 0;
             }
         }
+        ShowCardTips(focus);
+    }
+
+    /// <summary>
+    /// The keyword and card tips beside the card being read, as a hovered holder shows them (NCardHolder.CreateHoverTips).
+    /// Our slots are bare, so nothing else puts them up.
+    /// </summary>
+    private void ShowCardTips(CardModel? card)
+    {
+        if (card == _tipCard)
+        {
+            return;
+        }
+        if (_tipCard != null && _tipAnchors.TryGetValue(_tipCard, out Control? old) && GodotObject.IsInstanceValid(old))
+        {
+            NHoverTipSet.Remove(old);
+        }
+        _tipCard = card;
+        if (card != null && _tipAnchors.TryGetValue(card, out Control? anchor) && GodotObject.IsInstanceValid(anchor))
+        {
+            NHoverTipSet.CreateAndShow(anchor, card.HoverTips, HoverTip.GetHoverTipAlignment(anchor));
+        }
     }
 
     /// <summary>
@@ -969,6 +1438,17 @@ public partial class NSpectateScreenMirror : Control
             node.UpdateVisuals(PileType.None, CardPreviewMode.Normal);
         }
 
+        // The full-size card's rect, which the tips line up against once the card is lifted.
+        Control tipAnchor = new()
+        {
+            Name = "TipAnchor",
+            MouseFilter = MouseFilterEnum.Ignore,
+            Position = -NCard.defaultSize * 0.5f,
+            Size = NCard.defaultSize
+        };
+        slot.AddChildSafely(tipAnchor);
+        _tipAnchors[card] = tipAnchor;
+
         // Stays on the small card's rect whatever the card is doing, so lifting it can't pull it out from under us.
         Vector2 size = NCard.defaultSize * NCardHolder.smallScale;
         CardModel captured = card;
@@ -995,25 +1475,49 @@ public partial class NSpectateScreenMirror : Control
     }
 
     /// <summary>
-    /// Fades out our own screens that would show through or under theirs: our overlays, our own merchant rug, and in
-    /// an event our own event screen, which sits right where theirs is drawn. Only the look changes, so nothing of ours
-    /// notices. Worked out every frame, since what is on show can change under an open copy (a grid opening over an
-    /// event). Our map is never under here: the run UI puts it away while we watch somebody who is not on it.
+    /// Fades out our own screens that would show through or under theirs: our overlays, our own merchant rug, and in an
+    /// event our own event screen, which sits right where theirs is drawn. Only the look changes, so nothing of ours
+    /// notices. At the campfire our own options and proceed button are switched off instead (see below). Worked out
+    /// every frame, since what is on show can change under an open copy (a grid opening over an event). Our map is
+    /// never under here: the run UI puts it away while we watch somebody who is not on it.
     /// </summary>
     private void HideOurs(bool hide)
     {
         // The shade always takes the mouse, so nothing of ours can be clicked through a copy; it is only seen where the
-        // real screen has the overlay shade too. A rug or an event brings its own look.
+        // real screen has the overlay shade too. A rug, an event, the sphere or the campfire brings its own look.
         Color shade = _backstop.Modulate;
-        shade.A = _mode is Mode.Shop or Mode.Event ? 0f : 1f;
+        shade.A = _mode is Mode.Shop or Mode.Event or Mode.Sphere or Mode.RestSite ? 0f : 1f;
         _backstop.Modulate = shade;
+
+        // Our campfire's options are faded in and out by our own room (after picking one, say), which would bring them
+        // back over theirs; they are switched off instead. Nothing of the room's looks at whether they are visible.
+        NRestSiteRoom? restSite = hide && _mode == Mode.RestSite ? NRestSiteRoom.Instance : null;
+        HashSet<CanvasItem> off = new CanvasItem?[] { restSite?._choicesScreen, restSite?._proceedButton }
+            .OfType<CanvasItem>()
+            .Where(GodotObject.IsInstanceValid)
+            .ToHashSet();
+        foreach (CanvasItem item in _switchedOff.Where(s => !off.Contains(s)).ToList())
+        {
+            if (GodotObject.IsInstanceValid(item))
+            {
+                item.Visible = true;
+            }
+            _switchedOff.Remove(item);
+        }
+        foreach (CanvasItem item in off)
+        {
+            if (_switchedOff.Add(item))
+            {
+                item.Visible = false;
+            }
+        }
 
         HashSet<CanvasItem> wanted = hide
             ? new CanvasItem?[]
                 {
                     NOverlayStack.Instance,
                     NMerchantRoom.Instance?.Inventory,
-                    _mode == Mode.Event ? NEventRoom.Instance?.Layout : null
+                    _mode is Mode.Event or Mode.Sphere ? NEventRoom.Instance?.Layout : null
                 }
                 .OfType<CanvasItem>()
                 .Where(GodotObject.IsInstanceValid)
@@ -1118,6 +1622,16 @@ public partial class NSpectateScreenMirror : Control
         _bundlePreview = null;
         _bundlePreviewCards = null;
         _shownBundle = -1;
+        _sphere = null;
+        _sphereGame = null;
+        _sphereHovered = -1;
+        _sphereFinished = false;
+        CloseRestSiteChoices();
+        if (_inputBlocker != null && GodotObject.IsInstanceValid(_inputBlocker))
+        {
+            _inputBlocker.QueueFreeSafely();
+        }
+        _inputBlocker = null;
     }
 
     private void ClearRewards()
@@ -1143,6 +1657,8 @@ public partial class NSpectateScreenMirror : Control
 
     private void ClearCards()
     {
+        ShowCardTips(null);
+        _tipAnchors.Clear();
         // Cards first: QueueFreeSafely detaches a pooled node right away and hands it back later, so freeing the slot
         // first would take the card down with it.
         foreach (NCard node in _cards.Values)

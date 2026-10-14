@@ -155,8 +155,8 @@ Co-op Spectate lets you watch your teammates as if you were sitting next to them
 [list]
 [*][b]Their combat[/b]: their hand in place of yours, the card they're hovering raised, every card they pick up and aim with the targeting arrow and reticle, and their piles, energy and stars.
 [*][b]Their choices[/b]: discarding or exhausting from their hand, picking one of three cards, upgrading, removing or transforming cards from their deck, choosing from their draw or discard pile. You see the cards they mark before they confirm.
-[*][b]Their screens outside combat[/b]: their rewards, their card rewards, their shop with its prices and what they've already bought, and their own events, Neow included.
-[*][b]Their top bar[/b]: relics, potions, gold, HP and portrait.
+[*][b]Their screens outside combat[/b]: their rewards, their card rewards, their shop with its prices and what they've already bought, their own events, Neow and the Crystal Sphere included, and their options at the rest site.
+[*][b]Their top bar[/b]: relics, potions, gold, HP, portrait and deck.
 [*][b]Their cursor[/b] on top of all of it, so you can see what they're pointing at.
 [/list]
 Everything you see is the game's own screen, filled with their cards, so it looks exactly like theirs.
@@ -167,7 +167,7 @@ Everything you see is the game's own screen, filled with their cards, so it look
 [*][b]End your turn[/b] and you automatically follow a teammate who is still playing.
 [*][b]Click a teammate[/b] in combat, or the eye next to their icon in the party list.
 [*][b]Died?[/b] You keep watching whoever is still alive instead of staring at your corpse.
-[*]Your own turn, your own card choices, and opening your own map or deck always bring you back to your screen.
+[*]Your own turn, your own card choices, and opening your own map always bring you back to your screen.
 [/list]
 
 [h2]Draw on their screen[/h2]
@@ -178,7 +178,7 @@ Every player draws in their own colour, and the lines fade away on their own a m
 [h2]Good to know[/h2]
 [list]
 [*][b]Look, don't touch[/b]: nothing you see can be played, bought or picked. Your teammate stays in full control.
-[*][b]Doesn't affect gameplay[/b]: you can join lobbies with players who don't have it, and most of the spectating works on your own. A few things only come through when your teammate has the mod too: drawing, the cards they mark before confirming, their shop, and the pack they open with Scroll Boxes.
+[*][b]Doesn't affect gameplay[/b]: you can join lobbies with players who don't have it, and most of the spectating works on your own. A few things only come through when your teammate has the mod too: drawing, the cards they mark before confirming, their shop, the Crystal Sphere, and the pack they open with Scroll Boxes.
 [*][b]Fully configurable[/b]: every feature can be turned on or off in the mod settings.
 [*]Requires [url=https://steamcommunity.com/sharedfiles/filedetails/?id=3737335127]BaseLib[/url].
 [/list]

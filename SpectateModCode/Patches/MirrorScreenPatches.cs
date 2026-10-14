@@ -1,6 +1,8 @@
 using System.Runtime.CompilerServices;
-using Godot;
+using System.Threading.Tasks;
 using HarmonyLib;
+using MegaCrit.Sts2.Core.Events.Custom.CrystalSphereEvent;
+using MegaCrit.Sts2.Core.Nodes.Rooms;
 using MegaCrit.Sts2.Core.Nodes.Screens;
 using MegaCrit.Sts2.Core.Nodes.Screens.CardSelection;
 
@@ -19,21 +21,39 @@ namespace SpectateMod.SpectateModCode.Patches;
 [HarmonyPatch]
 public static class MirrorScreenPatches
 {
-    private static readonly ConditionalWeakTable<Node, object> mirrors = new();
+    private static readonly ConditionalWeakTable<object, object> mirrors = new();
 
-    public static void Register(Node screen)
+    /// <summary>A mirrored screen, or a stand-in model one is built on.</summary>
+    public static void Register(object mirror)
     {
-        mirrors.AddOrUpdate(screen, screen);
+        mirrors.AddOrUpdate(mirror, mirror);
     }
 
-    public static bool IsMirror(Node instance)
+    public static bool IsMirror(object instance)
     {
         return mirrors.TryGetValue(instance, out _);
     }
 
-    private static bool IsLive(Node instance)
+    private static bool IsLive(object instance)
     {
         return !IsMirror(instance);
+    }
+
+    /// <summary>
+    /// The Crystal Sphere mirror runs the game's own screen on a stand-in minigame. A click that got through to it would
+    /// play the stand-in, and a curse coming to light that way adds itself to its player's deck, on our machine only.
+    /// The mirror keeps the mouse and focus off it; this makes sure of it.
+    /// </summary>
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(CrystalSphereMinigame), nameof(CrystalSphereMinigame.CellClicked))]
+    public static bool SphereCellClicked(CrystalSphereMinigame __instance, ref Task __result)
+    {
+        if (IsLive(__instance))
+        {
+            return true;
+        }
+        __result = Task.CompletedTask;
+        return false;
     }
 
     [HarmonyPrefix]
@@ -121,4 +141,23 @@ public static class MirrorScreenPatches
     [HarmonyPrefix]
     [HarmonyPatch(typeof(NDeckEnchantSelectScreen), nameof(NDeckEnchantSelectScreen._Ready))]
     public static bool DeckEnchantReady(NDeckEnchantSelectScreen __instance) => IsLive(__instance);
+
+    // The rest site room, of which the mirror only uses the choices half. Its _Ready would build a second campfire with
+    // everyone around it and take over the screen shake; the others hook it up to the game and back.
+
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(NRestSiteRoom), nameof(NRestSiteRoom._Ready))]
+    public static bool RestSiteReady(NRestSiteRoom __instance) => IsLive(__instance);
+
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(NRestSiteRoom), nameof(NRestSiteRoom._EnterTree))]
+    public static bool RestSiteEnterTree(NRestSiteRoom __instance) => IsLive(__instance);
+
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(NRestSiteRoom), nameof(NRestSiteRoom._ExitTree))]
+    public static bool RestSiteExitTree(NRestSiteRoom __instance) => IsLive(__instance);
+
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(NRestSiteRoom), nameof(NRestSiteRoom._Input))]
+    public static bool RestSiteInput(NRestSiteRoom __instance) => IsLive(__instance);
 }
