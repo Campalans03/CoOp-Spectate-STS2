@@ -63,6 +63,24 @@ public partial class NSpectateHand : Control
     /// <summary>How far NPlayerHand.AnimDisable lowers the hand (its <c>_disablePosition</c>).</summary>
     private const float disabledHandDrop = 100f;
 
+    // How fast a hand card holder eases to its place in the fan, and how close counts as there
+    // (NHandCardHolder.AnimPosition, AnimAngle and AnimScale).
+    private const float moveSpeed = 7f;
+    private const float positionSnap = 1f;
+    private const float rotateSpeed = 10f;
+    private const float angleSnap = 0.1f;
+    private const float scaleSpeed = 8f;
+    private const float scaleSnap = 0.002f;
+
+    /// <summary>
+    /// Frames a card that left the hand waits to be seen arriving in another pile before it is let go of anyway. A move
+    /// takes it out of the hand and puts it in the next pile in one go, so one frame is already generous.
+    /// </summary>
+    private const int departureGraceFrames = 2;
+
+    /// <summary>The piles a card can come into the hand from or leave it for, whose moves we follow.</summary>
+    private static readonly PileType[] followedPiles = { PileType.Draw, PileType.Discard, PileType.Exhaust, PileType.Play };
+
     /// <summary>What the teammate is doing with the card they picked up.</summary>
     public enum PlayVisual
     {
@@ -90,6 +108,26 @@ public partial class NSpectateHand : Control
     private readonly Dictionary<CardModel, Tween> _flashTweens = new();
     private readonly Dictionary<CardModel, Action> _flashHandlers = new();
     private readonly List<CardModel> _order = new();
+
+    /// <summary>Where each card's slot is heading in the fan; <see cref="Animate" /> eases it there.</summary>
+    private readonly Dictionary<CardModel, SlotTarget> _targets = new();
+
+    /// <summary>The pile each card last left, so a card arriving in the hand can come from the right place.</summary>
+    private readonly Dictionary<CardModel, PileType> _cameFrom = new();
+
+    /// <summary>Cards that have left the hand, on their way out.</summary>
+    private readonly List<Departure> _departing = new();
+
+    /// <summary>Played cards whose slot the game's own card has taken over (<see cref="HandOff" />).</summary>
+    private readonly HashSet<CardModel> _handedOff = new();
+
+    private readonly List<(CardPile pile, Action<CardModel> left, Action<CardModel> arrived)> _pileHandlers = new();
+
+    /// <summary>
+    /// Put cards straight where they belong instead of easing them there: a hand that has only just come on screen
+    /// should look settled, not fly in from everywhere.
+    /// </summary>
+    private bool _snap;
 
     private Control _cardLayer = null!;
     private Control _hoverLayer = null!;
@@ -228,8 +266,29 @@ public partial class NSpectateHand : Control
         _combatState.StarsChanged += OnResourceChanged;
         CombatManager.Instance.StateTracker.CombatStateChanged += OnCombatStateChanged;
         _trackingCombat = true;
+        FollowPiles(player);
+        _snap = true;
         Rebuild();
+        _snap = false;
         RefreshSelectionHeader();
+    }
+
+    /// <summary>
+    /// Listens to the teammate's other piles, which is how we learn where a card that entered the hand came from and
+    /// where one that left it went. A move takes the card out of one pile and puts it in the next straight away, so
+    /// the two halves arrive back to back.
+    /// </summary>
+    private void FollowPiles(Player player)
+    {
+        foreach (PileType type in followedPiles)
+        {
+            CardPile pile = type.GetPile(player);
+            Action<CardModel> left = card => Safe.Run("follow the watched player's card", () => _cameFrom[card] = type);
+            Action<CardModel> arrived = card => Safe.Run("animate the watched player's card", () => OnCardArrived(type, card));
+            pile.CardRemoved += left;
+            pile.CardAdded += arrived;
+            _pileHandlers.Add((pile, left, arrived));
+        }
     }
 
     public void Unbind()
@@ -252,6 +311,13 @@ public partial class NSpectateHand : Control
             CombatManager.Instance.StateTracker.CombatStateChanged -= OnCombatStateChanged;
             _trackingCombat = false;
         }
+        foreach ((CardPile pile, Action<CardModel> left, Action<CardModel> arrived) in _pileHandlers)
+        {
+            pile.CardRemoved -= left;
+            pile.CardAdded -= arrived;
+        }
+        _pileHandlers.Clear();
+        _cameFrom.Clear();
         _remoteHovered = null;
         _localHovered = null;
         _playCard = null;
@@ -406,7 +472,203 @@ public partial class NSpectateHand : Control
         // The real container is reached through a unique-name lookup and may sit at any depth, so follow it in global
         // space instead of assuming we share a parent. Doing it per frame also survives resolution changes.
         FollowRealHand();
+        Animate((float)delta);
         ProcessPlayVisual(delta);
+        ProcessDepartures();
+    }
+
+    /// <summary>
+    /// Eases every card toward its place in the fan, a frame at a time, at the rates a hand card holder uses. Not the
+    /// held card: <see cref="ProcessPlayVisual" /> drives that one.
+    /// </summary>
+    private void Animate(float delta)
+    {
+        foreach ((CardModel card, SlotTarget target) in _targets)
+        {
+            if (card == _playCard || !_slots.TryGetValue(card, out Control? slot) || !GodotObject.IsInstanceValid(slot))
+            {
+                continue;
+            }
+            slot.Position = slot.Position.DistanceSquaredTo(target.Position) < positionSnap
+                ? target.Position
+                : slot.Position.Lerp(target.Position, Mathf.Min(1f, delta * moveSpeed));
+            float degrees = Mathf.Lerp(slot.RotationDegrees, target.Degrees, Mathf.Min(1f, delta * rotateSpeed));
+            slot.RotationDegrees = Mathf.Abs(degrees - target.Degrees) < angleSnap ? target.Degrees : degrees;
+            Vector2 scale = slot.Scale.Lerp(target.Scale, Mathf.Min(1f, delta * scaleSpeed));
+            slot.Scale = Mathf.Abs(scale.X - target.Scale.X) < scaleSnap ? target.Scale : scale;
+        }
+    }
+
+    /// <summary>Sets where a card's slot is heading, or puts it there outright while <see cref="_snap" /> is on.</summary>
+    private void MoveTo(CardModel card, Control slot, Vector2 position, float degrees, Vector2 scale)
+    {
+        _targets[card] = new SlotTarget(position, degrees, scale);
+        if (_snap)
+        {
+            slot.Position = position;
+            slot.RotationDegrees = degrees;
+            slot.Scale = scale;
+        }
+    }
+
+    /// <summary>
+    /// A card coming into the hand starts where it came from, the way the game creates our drawn card on the draw pile
+    /// and lets the hand pull it in: the button of the pile it left, or the play area. One that came from nowhere,
+    /// made by a card or a power, grows out of its own place in the fan instead.
+    /// </summary>
+    private void PlaceArrival(CardModel card, Control slot, PileType? from)
+    {
+        switch (from)
+        {
+            case PileType.Draw or PileType.Discard or PileType.Exhaust when _player != null && CardFlights.PilesShow(_player):
+                slot.GlobalPosition = CardFlights.PileCentre(from.Value);
+                slot.Scale = Vector2.One;
+                break;
+            case PileType.Play:
+                slot.GlobalPosition = CardFlights.PlayCentre();
+                slot.Scale = Vector2.One * CardFlights.PlayScale;
+                break;
+            default:
+                if (_targets.TryGetValue(card, out SlotTarget target))
+                {
+                    slot.Position = target.Position;
+                    slot.RotationDegrees = target.Degrees;
+                }
+                slot.Scale = Vector2.Zero;
+                break;
+        }
+    }
+
+    /// <summary>
+    /// A card of the teammate's landing in one of their piles. One that just left the hand flies there from its slot.
+    /// One that went between two piles gets the flight the game gives ours: a card back from pile to pile for a
+    /// shuffle, or off the play area once a played card is done.
+    /// </summary>
+    private void OnCardArrived(PileType type, CardModel card)
+    {
+        bool known = _cameFrom.Remove(card, out PileType from);
+        Departure? departure = _departing.Find(d => d.Card == card && d.Tween == null);
+        if (departure != null)
+        {
+            Dispatch(departure, type);
+            return;
+        }
+        if (!known || _player == null || !IsVisibleInTree())
+        {
+            return;
+        }
+        if (from == PileType.Play)
+        {
+            // Into the exhaust pile the game already burns it up as it does ours.
+            if ((type is PileType.Draw or PileType.Discard) && CardFlights.PilesShow(_player))
+            {
+                CardFlights.LeavePlay(card, type);
+            }
+            return;
+        }
+        if (from != type && (from is PileType.Draw or PileType.Discard or PileType.Exhaust)
+                         && (type is PileType.Draw or PileType.Discard) && CardFlights.PilesShow(_player))
+        {
+            CardFlights.Shuffle(from.GetPile(_player), type.GetPile(_player), _player);
+        }
+    }
+
+    /// <summary>
+    /// The game's own card for one the teammate is playing, created as the card leaves their hand. It would set off
+    /// from their character; start it from the card in the hand we are showing instead, and stand ours down.
+    /// </summary>
+    public void HandOff(CardModel card, NCard played)
+    {
+        if (_player == null || card.Owner != _player || !IsVisibleInTree()
+            || !_slots.TryGetValue(card, out Control? slot) || !GodotObject.IsInstanceValid(slot) || !slot.Visible)
+        {
+            return;
+        }
+        played.GlobalPosition = slot.GlobalPosition;
+        played.Scale = slot.Scale;
+        slot.Visible = false;
+        _handedOff.Add(card);
+        if (_hitboxes.TryGetValue(card, out Control? hitbox) && GodotObject.IsInstanceValid(hitbox))
+        {
+            hitbox.Visible = false;
+        }
+    }
+
+    /// <summary>
+    /// Takes a card that has left the hand out of the fan, keeping its slot where it stands until we see which pile it
+    /// went to. Without a flight to make (a hand not on screen, or one being put up afresh) it just goes.
+    /// </summary>
+    private void Depart(CardModel card)
+    {
+        bool handedOff = _handedOff.Contains(card);
+        if (_snap || handedOff || !IsVisibleInTree()
+            || !_slots.TryGetValue(card, out Control? slot) || !GodotObject.IsInstanceValid(slot) || !slot.Visible
+            || !_cards.TryGetValue(card, out NCard? node) || !GodotObject.IsInstanceValid(node))
+        {
+            Release(card);
+            return;
+        }
+        Forget(card);
+        _slots.Remove(card);
+        _cards.Remove(card);
+        _departing.Add(new Departure(card, slot, node));
+    }
+
+    /// <summary>
+    /// Sends a departed card on its way, as CardPileCmd.Add would send ours: flying into the discard or draw pile,
+    /// burning up into the exhaust pile, or, into the play area, nowhere at all, since the game's own card has already
+    /// taken its place there. Anything else (a pile without a button, a card gone from the fight) sinks and fades.
+    /// </summary>
+    private void Dispatch(Departure departure, PileType? to)
+    {
+        NCard node = departure.Node;
+        Control slot = departure.Slot;
+        if (!GodotObject.IsInstanceValid(node) || !GodotObject.IsInstanceValid(slot) || to == PileType.Play)
+        {
+            _departing.Remove(departure);
+            Free(node, slot);
+            return;
+        }
+        node.CardHighlight.AnimHide();
+        if ((to is PileType.Discard or PileType.Draw) && _player != null && CardFlights.PilesShow(_player))
+        {
+            _departing.Remove(departure);
+            node.UpdateVisuals(to.Value, CardPreviewMode.Normal);
+            CardFlights.FlyToPile(node, to.Value);
+            slot.QueueFreeSafely();
+            return;
+        }
+        if (to == PileType.Exhaust)
+        {
+            CardFlights.Exhaust(node);
+        }
+        departure.Tween = CardFlights.FadeOut(slot, to != PileType.Exhaust, () =>
+        {
+            _departing.Remove(departure);
+            Free(departure.Node, departure.Slot);
+        });
+    }
+
+    /// <summary>Lets go of departed cards that never turned up in a pile we follow, going by where they are now.</summary>
+    private void ProcessDepartures()
+    {
+        foreach (Departure departure in _departing.ToList())
+        {
+            if (departure.Tween == null && ++departure.Frames >= departureGraceFrames)
+            {
+                Safe.Run("send off the watched player's card", () => Dispatch(departure, departure.Card.Pile?.Type));
+            }
+        }
+    }
+
+    private void ClearDepartures()
+    {
+        foreach (Departure departure in _departing)
+        {
+            departure.Tween?.Kill();
+            Free(departure.Node, departure.Slot);
+        }
+        _departing.Clear();
     }
 
     public override void _ExitTree()
@@ -584,15 +846,24 @@ public partial class NSpectateHand : Control
 
         foreach (CardModel gone in _slots.Keys.Where(c => !_order.Contains(c)).ToList())
         {
-            Release(gone);
+            Depart(gone);
         }
 
+        List<(CardModel card, Control slot, PileType? from)> arrivals = new();
         foreach (CardModel card in _order)
         {
             if (_slots.ContainsKey(card))
             {
                 continue;
             }
+            // Back before it was seen off: the old slot goes, and the card comes in like any other.
+            foreach (Departure stale in _departing.Where(d => d.Card == card).ToList())
+            {
+                stale.Tween?.Kill();
+                _departing.Remove(stale);
+                Free(stale.Node, stale.Slot);
+            }
+            PileType? from = _cameFrom.Remove(card, out PileType left) ? left : null;
             NCard? node = NCard.Create(card);
             if (node == null)
             {
@@ -643,6 +914,7 @@ public partial class NSpectateHand : Control
             Action onChanged = () => Safe.Run("flash a changed card", () => Flash(captured));
             WatchForFlash(card, onChanged);
             _flashHandlers[card] = onChanged;
+            arrivals.Add((card, slot, from));
         }
 
         if (_remoteHovered != null && !_slots.ContainsKey(_remoteHovered))
@@ -654,6 +926,13 @@ public partial class NSpectateHand : Control
             _localHovered = null;
         }
         Layout();
+        if (!_snap)
+        {
+            foreach ((CardModel card, Control slot, PileType? from) in arrivals)
+            {
+                PlaceArrival(card, slot, from);
+            }
+        }
     }
 
     private void OnHitboxExited(CardModel card)
@@ -712,7 +991,8 @@ public partial class NSpectateHand : Control
         HandSelection.Choice? choice = _player == null ? null : HandSelection.GetChoice(_player);
         IReadOnlyList<CardModel> marked = _player == null ? Array.Empty<CardModel>() : HandSelection.GetMarked(_player);
         List<CardModel> visible = _order
-            .Where(c => _slots.ContainsKey(c) && !marked.Contains(c) && (choice == null || choice.Allows(c)))
+            .Where(c => _slots.ContainsKey(c) && !_handedOff.Contains(c) && !marked.Contains(c)
+                        && (choice == null || choice.Allows(c)))
             .ToList();
         HideLeftOut(visible, marked);
         LayoutMarked(marked);
@@ -777,17 +1057,20 @@ public partial class NSpectateHand : Control
                 // An absolute height, not a lift: the fan puts the middle card higher than the edges, so adding a
                 // fixed amount left the outer cards short. This is the game's own formula for a focused holder
                 // (-Hitbox.Size.Y * 0.5f + 2f), which lands the card's bottom edge 2px past the hand's baseline and
-                // so shows the whole card whichever slot it came from.
+                // so shows the whole card whichever slot it came from. Like RefreshLayout, the card stands up, grows
+                // and rises at once, and only slides sideways into place.
                 slot.Scale = Vector2.One;
                 slot.Rotation = 0f;
-                slot.Position = new Vector2(position.X, focusCentreY);
+                slot.Position = new Vector2(slot.Position.X, focusCentreY);
+                MoveTo(visible[i], slot, new Vector2(position.X, focusCentreY), 0f, Vector2.One);
                 slot.ZIndex = 2;
             }
             else
             {
-                slot.Scale = isSecondary ? Vector2.One : scale;
-                slot.Rotation = isSecondary ? 0f : angle;
-                slot.Position = position + (isSecondary ? Vector2.Up * secondaryRaise : Vector2.Zero);
+                MoveTo(visible[i], slot,
+                    position + (isSecondary ? Vector2.Up * secondaryRaise : Vector2.Zero),
+                    isSecondary ? 0f : Mathf.RadToDeg(angle),
+                    isSecondary ? Vector2.One : scale);
                 slot.ZIndex = isSecondary ? 1 : 0;
             }
 
@@ -849,9 +1132,7 @@ public partial class NSpectateHand : Control
             }
             bool isFocus = card == focus;
             slot.Visible = true;
-            slot.Rotation = 0f;
-            slot.Scale = isFocus ? Vector2.One : NCardHolder.smallScale;
-            slot.Position = position;
+            MoveTo(card, slot, position, 0f, isFocus ? Vector2.One : NCardHolder.smallScale);
             slot.ZIndex = isFocus ? 2 : 1;
 
             if (_hitboxes.TryGetValue(card, out Control? hitbox) && GodotObject.IsInstanceValid(hitbox))
@@ -926,13 +1207,42 @@ public partial class NSpectateHand : Control
         {
             Release(card);
         }
+        ClearDepartures();
         _slots.Clear();
         _cards.Clear();
         _hitboxes.Clear();
+        _targets.Clear();
+        _handedOff.Clear();
         _order.Clear();
     }
 
     private void Release(CardModel card)
+    {
+        Forget(card);
+        _cards.Remove(card, out NCard? node);
+        _slots.Remove(card, out Control? slot);
+        Free(node, slot);
+    }
+
+    /// <summary>
+    /// Frees a card and the slot it hangs from. The card goes back to the pool first: QueueFreeSafely detaches an
+    /// IPoolable from its parent immediately and defers only the pool hand-back. Freeing the slot first would take the
+    /// card down with it and lose the node.
+    /// </summary>
+    private static void Free(NCard? node, Control? slot)
+    {
+        if (node != null && GodotObject.IsInstanceValid(node))
+        {
+            node.QueueFreeSafely();
+        }
+        if (slot != null && GodotObject.IsInstanceValid(slot))
+        {
+            slot.QueueFreeSafely();
+        }
+    }
+
+    /// <summary>Everything we keep about a card in the hand apart from its slot and node.</summary>
+    private void Forget(CardModel card)
     {
         if (_flashHandlers.Remove(card, out Action? onChanged))
         {
@@ -942,22 +1252,23 @@ public partial class NSpectateHand : Control
         {
             flashTween.Kill();
         }
-        // The flash is ours, not pooled, and goes down with the slot below.
+        // The flash is ours, not pooled, and goes down with the slot.
         _flashes.Remove(card);
+        _targets.Remove(card);
+        _handedOff.Remove(card);
 
-        // Return the card to the pool first: QueueFreeSafely detaches an IPoolable from its parent immediately and
-        // defers only the pool hand-back. Freeing the slot first would take the card down with it and lose the node.
-        if (_cards.Remove(card, out NCard? node) && GodotObject.IsInstanceValid(node))
-        {
-            node.QueueFreeSafely();
-        }
-        if (_slots.Remove(card, out Control? slot) && GodotObject.IsInstanceValid(slot))
-        {
-            slot.QueueFreeSafely();
-        }
         if (_hitboxes.Remove(card, out Control? hitbox) && GodotObject.IsInstanceValid(hitbox))
         {
             hitbox.QueueFreeSafely();
+        }
+        if (_remoteHovered == card)
+        {
+            _remoteHovered = null;
+        }
+        if (_playCard == card)
+        {
+            _playCard = null;
+            _playVisual = PlayVisual.None;
         }
         if (_localHovered == card)
         {
@@ -968,5 +1279,18 @@ public partial class NSpectateHand : Control
             _previewCard = null;
             _previewTarget = null;
         }
+    }
+
+    /// <summary>Where a card's slot is heading: its place in the fan, or in the row of marked cards.</summary>
+    private readonly record struct SlotTarget(Vector2 Position, float Degrees, Vector2 Scale);
+
+    /// <summary>A card that has left the hand, still in its slot until it is sent on (or faded out).</summary>
+    private sealed class Departure(CardModel card, Control slot, NCard node)
+    {
+        public CardModel Card { get; } = card;
+        public Control Slot { get; } = slot;
+        public NCard Node { get; } = node;
+        public int Frames { get; set; }
+        public Tween? Tween { get; set; }
     }
 }

@@ -129,6 +129,13 @@ public class SpectateConfig : SimpleModConfig
     public static bool ShowOwnEnergy { get; set; } = true;
 
     /// <summary>
+    /// The "View Upgrades" box the forge has, on the card reward screen and the combat piles too. Takes effect the
+    /// next time one of them opens.
+    /// </summary>
+    [ConfigSection("Card views")]
+    public static bool ViewUpgradesBox { get; set; } = true;
+
+    /// <summary>
     /// Puts <see cref="ErrorReport" /> on the clipboard so a player can paste it into a bug report, and says so on the
     /// button for a moment, since nothing else on screen changes.
     /// </summary>

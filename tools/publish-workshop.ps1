@@ -153,7 +153,7 @@ Co-op Spectate lets you watch your teammates as if you were sitting next to them
 
 [h2]What you see[/h2]
 [list]
-[*][b]Their combat[/b]: their hand in place of yours, the card they're hovering raised, every card they pick up and aim with the targeting arrow and reticle, and their piles, energy and stars.
+[*][b]Their combat[/b]: their hand in place of yours, the card they're hovering raised, every card they pick up and aim with the targeting arrow and reticle, and their piles, energy and stars. Their cards move like yours do: drawn from the pile, sliding into place, flying off to the discard pile or burning up when exhausted.
 [*][b]Their choices[/b]: discarding or exhausting from their hand, picking one of three cards, upgrading, removing or transforming cards from their deck, choosing from their draw or discard pile. You see the cards they mark before they confirm.
 [*][b]Their screens outside combat[/b]: their rewards, their card rewards, their shop with its prices and what they've already bought, their own events, Neow and the Crystal Sphere included, and their options at the rest site.
 [*][b]Their top bar[/b]: relics, potions, gold, HP, portrait and deck.
@@ -174,6 +174,9 @@ Everything you see is the game's own screen, filled with their cards, so it look
 While spectating, [b]hold right click and drag[/b] to draw on your teammate's screen, anywhere: in combat, in the shop, on their rewards. Point at the enemy to hit, the card to take, or the relic to buy.
 
 Every player draws in their own colour, and the lines fade away on their own a moment later.
+
+[h2]View Upgrades everywhere[/h2]
+The forge's [b]View Upgrades[/b] box, in the bottom-left corner, also on your card rewards, on a teammate's card rewards while you watch them, and on the draw, discard and exhaust piles in combat. Tick it to see every card upgraded at once. It only changes the pictures: the card you pick is the one offered.
 
 [h2]Good to know[/h2]
 [list]

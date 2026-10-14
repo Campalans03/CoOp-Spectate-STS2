@@ -155,6 +155,10 @@ public static class SpectateView
         }
     }
 
+    /// <summary>The teammate's hand we are showing in place of ours, if any.</summary>
+    public static NSpectateHand? MirroredHand =>
+        _hand != null && GodotObject.IsInstanceValid(_hand) && _hand.Visible ? _hand : null;
+
     /// <summary>Whose card play the overlay mirrors: the arrow, the reticle and the held card.</summary>
     public static Player? VisualPlayer => SpectateController.Viewed;
 

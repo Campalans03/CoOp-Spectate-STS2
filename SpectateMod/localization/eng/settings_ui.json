@@ -5,6 +5,7 @@
   "SPECTATEMOD-WHAT_GETS_REPLACED.title": "What gets replaced",
   "SPECTATEMOD-INDICATORS.title": "Indicators",
   "SPECTATEMOD-HOTKEYS.title": "Hotkeys",
+  "SPECTATEMOD-CARD_VIEWS.title": "Card views",
   "SPECTATEMOD-TROUBLESHOOTING.title": "Troubleshooting",
 
   "SPECTATEMOD-COPY_ERROR_REPORT.title": "Report a bug",
@@ -124,5 +125,8 @@
   "SPECTATEMOD-SHOW_SPECTATING_BORDER.description": "Outline the screen in red while spectating.",
 
   "SPECTATEMOD-SHOW_OWN_ENERGY.title": "Show your own energy",
-  "SPECTATEMOD-SHOW_OWN_ENERGY.description": "While the combat UI shows a teammate's energy, keep a smaller orb with yours beside it."
+  "SPECTATEMOD-SHOW_OWN_ENERGY.description": "While the combat UI shows a teammate's energy, keep a smaller orb with yours beside it.",
+
+  "SPECTATEMOD-VIEW_UPGRADES_BOX.title": "View Upgrades on card rewards and piles",
+  "SPECTATEMOD-VIEW_UPGRADES_BOX.description": "Add the forge's View Upgrades box to the card reward screen and the draw, discard and exhaust piles, to see every card upgraded at once. It only changes the pictures: the card you pick is the one offered."
 }

@@ -125,6 +125,12 @@ public partial class NSpectateScreenMirror : Control
     private readonly List<CardChoice.Alternative> _shownAlternatives = new();
     private readonly Dictionary<CardModel, Control> _slots = new();
     private readonly Dictionary<CardModel, NCard> _cards = new();
+
+    /// <summary>Whether our View Upgrades box on their card rewards is ticked. Ours alone; they never hear of it.</summary>
+    private bool _showingUpgrades;
+
+    /// <summary>The upgraded copy each offered card shows while <see cref="_showingUpgrades" /> is on.</summary>
+    private readonly Dictionary<CardModel, CardModel> _upgradedCopies = new();
     private readonly Dictionary<CardModel, Control> _hitboxes = new();
     private CardModel? _localHovered;
 
@@ -480,6 +486,20 @@ public partial class NSpectateScreenMirror : Control
                 screen.GetNode<Control>("%InspectPrompt").Visible = false;
                 _cardRow = screen.GetNode<Control>("UI/CardRow");
                 _alternativeRow = screen.GetNode<Control>("UI/RewardAlternatives");
+                if (SpectateConfig.ViewUpgradesBox)
+                {
+                    // The same box our own reward screen gets (ViewUpgradesPatches), here only ever for us to look with.
+                    ViewUpgradesBox.AddTo(screen, ticked =>
+                    {
+                        _showingUpgrades = ticked;
+                        foreach ((CardModel card, NCard node) in _cards)
+                        {
+                            ShowUpgrade(card, node);
+                        }
+                        // Taken down so the next frame puts up the tips of what the card now shows.
+                        ShowCardTips(null);
+                    });
+                }
                 break;
             }
             case Mode.ChooseCards:
@@ -1409,7 +1429,12 @@ public partial class NSpectateScreenMirror : Control
         _tipCard = card;
         if (card != null && _tipAnchors.TryGetValue(card, out Control? anchor) && GodotObject.IsInstanceValid(anchor))
         {
-            NHoverTipSet.CreateAndShow(anchor, card.HoverTips, HoverTip.GetHoverTipAlignment(anchor));
+            // The tips of what the card shows, which is its upgraded copy while View Upgrades is ticked.
+            CardModel shown = _cards.TryGetValue(card, out NCard? node) && GodotObject.IsInstanceValid(node)
+                                                                       && node.Model != null
+                ? node.Model
+                : card;
+            NHoverTipSet.CreateAndShow(anchor, shown.HoverTips, HoverTip.GetHoverTipAlignment(anchor));
         }
     }
 
@@ -1472,6 +1497,38 @@ public partial class NSpectateScreenMirror : Control
         _slots[card] = slot;
         _cards[card] = node;
         _hitboxes[card] = hitbox;
+        if (_showingUpgrades)
+        {
+            ShowUpgrade(card, node);
+        }
+    }
+
+    /// <summary>
+    /// Shows a card upgraded or as it is, the way NGridCardHolder.SetIsPreviewingUpgrade does: by putting an upgraded
+    /// copy on the card node. The node's model is one of the things the pool clears, so the copy can't outlive us.
+    /// </summary>
+    private void ShowUpgrade(CardModel card, NCard node)
+    {
+        if (!GodotObject.IsInstanceValid(node) || !node.IsNodeReady())
+        {
+            return;
+        }
+        if (_showingUpgrades && card.IsUpgradable)
+        {
+            if (!_upgradedCopies.TryGetValue(card, out CardModel? upgraded))
+            {
+                upgraded = (CardModel)card.MutableClone();
+                upgraded.UpgradeInternal();
+                _upgradedCopies[card] = upgraded;
+            }
+            node.Model = upgraded;
+            node.ShowUpgradePreview();
+        }
+        else if (node.Model != card)
+        {
+            node.Model = card;
+            node.UpdateVisuals(PileType.None, CardPreviewMode.Normal);
+        }
     }
 
     /// <summary>
@@ -1584,6 +1641,8 @@ public partial class NSpectateScreenMirror : Control
     {
         ClearRewards();
         ClearCards();
+        _showingUpgrades = false;
+        _upgradedCopies.Clear();
         _shownAlternatives.Clear();
         if (_cursor != null && GodotObject.IsInstanceValid(_cursor))
         {
