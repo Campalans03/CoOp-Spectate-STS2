@@ -59,4 +59,6 @@ You need the .NET 9 SDK, Slay the Spire 2 installed, and MegaDot / Godot 4.5.1 (
 
 ## License
 
-[MIT](LICENSE)
+[CC BY-NC-SA 4.0](LICENSE): you can read, modify and share the code, giving credit, for non-commercial use only,
+and anything you share based on it must use the same license. This is source-available rather than OSI "open source",
+because commercial use isn't allowed.
