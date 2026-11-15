@@ -31,6 +31,11 @@ screens it touches, before opening a pull request.
 - The mod depends on the game's internals, which change between versions. Say which game version you tested with.
 - Follow the style of the surrounding code, and keep comments to the reason for something, not what the line does.
 
+## Using AI
+
+You can use AI tools, as this project does (see [AI use](README.md#ai-use)). Read and test what they produce before you
+send it, and say so in the pull request if a large part of it was written that way.
+
 ## Pull requests
 
 - One change per pull request, with a short description of what it does and how you tested it.
