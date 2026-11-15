@@ -34,7 +34,8 @@ screens it touches, before opening a pull request.
 ## Using AI
 
 You can use AI tools, as this project does (see [AI use](README.md#ai-use)). Read and test what they produce before you
-send it, and say so in the pull request if a large part of it was written that way.
+send it, and say so in the pull request if a large part of it was written that way. You are responsible for the code
+you submit.
 
 ## Pull requests
 

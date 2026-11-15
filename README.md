@@ -60,8 +60,8 @@ You need the .NET 9 SDK, Slay the Spire 2 installed, and MegaDot / Godot 4.5.1 (
 ## AI use
 
 Parts of this mod were written with the help of an AI coding assistant (Claude). I direct the design, review the
-changes and test them in real co-op runs before releasing. I take responsibility for the code. Contributions made with
-AI help are welcome as long as you've read and tested them yourself.
+changes and test them in real co-op runs before releasing. Contributions made with AI help are welcome as long as
+you've read and tested them yourself. You are responsible for the code you submit.
 
 ## License
 
