@@ -320,7 +320,7 @@ public static class SpectateBoard
             // Some pets never get a bar, like the immortal Byrdpip; AnimateIn would show theirs anyway. Not judged by
             // IsInteractable: the game makes every pet of a teammate non-interactable, Osty included, and theirs does
             // get a bar while they are the one on show.
-            else if (node.Entity.IsAlive && node.Entity.Monster is not { IsHealthBarVisible: false })
+            else if (node.Entity.IsAlive && node.Entity.Monster is not { IsInteractable: false })
             {
                 node._stateDisplay.AnimateIn(HealthBarAnimMode.FromHidden);
             }
@@ -383,7 +383,7 @@ public static class SpectateBoard
 
     /// <summary>
     /// The combat-start layout puts the front player's Osty half a body plus 150px further out than
-    /// <see cref="NCreature.OstyScaleToSize" /> does, and it is the latter that places Osty in play: every summon moves
+    /// <see cref="NCreature.ScaleAndPositionOsty" /> does, and it is the latter that places Osty in play: every summon moves
     /// it there. Use that spot so Osty lands where it would stand if its owner were playing, not out in the enemies.
     /// </summary>
     private static void PlaceFrontOsty(List<NCreature> nodes)

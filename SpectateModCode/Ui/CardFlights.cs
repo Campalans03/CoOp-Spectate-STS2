@@ -86,7 +86,7 @@ public static class CardFlights
     public static void Exhaust(NCard node)
     {
         NCombatUi? ui = NCombatRoom.Instance?.Ui;
-        NExhaustVfx? burst = NExhaustVfx.Create(node);
+        NCardExhaustVfx? burst = NCardExhaustVfx.Create(node);
         if (burst == null)
         {
             return;

@@ -51,7 +51,7 @@ public static class BoardPatches
             return null;
         }
         decimal damage = Hook.ModifyDamage(target.RunState, target.Creature.CombatState, target.Creature, owner,
-            intent.DamageCalc(), ValueProp.Move, null, ModifyDamageHookType.All, CardPreviewMode.None,
+            intent.DamageCalc(), ValueProp.Move, null, null, ModifyDamageHookType.All, CardPreviewMode.None,
             out IEnumerable<AbstractModel> _);
         return Math.Max(0, (int)damage);
     }
@@ -63,33 +63,6 @@ public static class BoardPatches
         return !Safe.Run("keep the watched player's health bar up",
             () => SpectateBoard.HandleRemoteFocus(remotePlayerFocused), false);
     }
-
-    /// <summary>
-    /// A growing or shrinking Osty walks to stay in front of its owner only when the owner is local. Let it do that for
-    /// whoever stands in our spot, and not for ours while we are at the back.
-    /// </summary>
-    [HarmonyPrefix]
-    [HarmonyPatch(typeof(NCreature), nameof(NCreature.OstyScaleToSize))]
-    public static bool BeforeOstyScaleToSize(NCreature __instance, float ostyHealth, double duration)
-    {
-        if (_inOstyScale || !SpectateBoard.IsLayoutSwapped)
-        {
-            return true;
-        }
-        _inOstyScale = true;
-        try
-        {
-            SpectateBoard.AsLayoutOwner(() => __instance.OstyScaleToSize(ostyHealth, duration));
-        }
-        finally
-        {
-            _inOstyScale = false;
-        }
-        return false;
-    }
-
-    /// <summary>Set while the prefix above re-enters the method, so the second pass runs the game's code.</summary>
-    private static bool _inOstyScale;
 
     [HarmonyPostfix]
     [HarmonyPatch(typeof(NCombatRoom), nameof(NCombatRoom.AddCreature))]

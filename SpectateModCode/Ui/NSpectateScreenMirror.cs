@@ -416,13 +416,13 @@ public partial class NSpectateScreenMirror : Control
     private MerchantInventory? OpenShop(Player player)
     {
         IRunState? run = SpectateController.Run;
-        if (run?.CurrentRoom is not MerchantRoom room || !ShopState.Get(player).Open
+        if (run?.CurrentRoom is not MerchantRoom || !ShopState.Get(player).Open
                                                      || !IsInRoom(player))
         {
             return null;
         }
         int slot = run.GetPlayerSlotIndex(player);
-        return slot >= 0 && slot < room.Inventories.Count ? room.Inventories[slot] : null;
+        return slot >= 0 ? RunManager.Instance.MerchantSynchronizer.GetInventoryFor(player) : null;
     }
 
     /// <summary>

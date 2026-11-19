@@ -48,7 +48,7 @@ public static class CardChoicePatches
             Kind = CardChoice.Kind.Reward,
             Cards = () => reward._cards.Select(c => c.Card).ToList(),
             Alternatives = () => alternatives.TryGetValue(reward, out IReadOnlyList<CardRewardAlternative>? list)
-                ? list.Select(a => new CardChoice.Alternative(a.Title.GetFormattedText(), a.Hotkey)).ToList()
+                ? list.Select(a => new CardChoice.Alternative(a.Title.GetFormattedText(), a.Hotkeys.FirstOrDefault() ?? "")).ToList()
                 : Array.Empty<CardChoice.Alternative>()
         });
     }
